@@ -1,0 +1,25 @@
+[project]
+name = "biobank"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "altair>=5.5.0",
+    "ipykernel>=6.29.5",
+    "ipywidgets>=8.1.7",
+    "jinja2>=3.1.6",
+    "lifelines>=0.30.0",
+    "matplotlib>=3.10.1",
+    "nbformat>=5.10.4",
+    "pandas>=2.2.3",
+    "plotly>=6.0.1",
+    "polars>=1.30.0",
+    "pyarrow>=20.0.0",
+    "scikit-learn>=1.6.1",
+    "scipy>=1.15.2",
+    "seaborn>=0.13.2",
+    "tqdm>=4.67.1",
+    "vegafusion>=2.0.2",
+    "vl-convert-python>=1.8.0",
+]
