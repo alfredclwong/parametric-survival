@@ -11,25 +11,19 @@ We can model the discrete variable, $\mathbb{P}(D)=\mathbb{P}(T<C)$, or the cont
 ## Distributions
 In survival analysis, we define "survival" as the absence of a critical event, e.g. death or disease diagnosis. At any time $t$, we define the "hazard" $h(t)$ as the chance of the event occurring, conditional on the fact that it hasn't yet occurred.
 
-$$
-h(t) = \lim_{\Delta t \rightarrow 0} \frac{\mathbb{P}(t<T<t+\Delta t | T>t)}{\Delta t} = \frac{f(t)}{S(t)}
-$$
+$$h(t) = \lim_{\Delta t \rightarrow 0} \frac{\mathbb{P}(t < T < t + \Delta t | T > t)}{\Delta t} = \frac{f(t)}{S(t)}$$
 
 Since $S(t) = 1-F(t)$, we have
 
-$$
-h(t) = -\frac{S'(t)}{S(t)}\\
-H(t) = -\log(S(t))\\
-S(t) = \exp(-H(t))
-$$
+$$h(t) = -\frac{S'(t)}{S(t)}$$
+$$H(t) = -\log(S(t))$$
+$$S(t) = \exp(-H(t))$$
 
 where $H(t) = \int_0^t h(u) du$ is the "cumulative hazard". Suppose $H(t) = (t/\lambda)^k$, then
 
-$$
-S(t) = e^{-(t/\lambda)^k}\\
-F(t) = 1 - e^{-(t/\lambda)^k}\\
-f(t) = \frac{k}{\lambda}\left(\frac{t}{\lambda}\right)^{k-1}e^{-(t/\lambda)^k}
-$$
+$$S(t) = e^{-(t/\lambda)^k}$$
+$$F(t) = 1 - e^{-(t/\lambda)^k}$$
+$$f(t) = \frac{k}{\lambda}\left(\frac{t}{\lambda}\right)^{k-1}e^{-(t/\lambda)^k}$$
 
 This is the known as the Weibull distribution, where \( $\lambda > 0$ \) is the scale parameter and \( $k > 0$ \) is the shape parameter. When $k=1$, this reduces to an Exponential distribution.
 
@@ -42,11 +36,9 @@ Since we aren't modelling death, not everyone is expected to see an event in the
 ## Parameters
 We model parameters $\theta = (A, \lambda, k)$ as a function of features $X$ using linear regression and non-linear output transformations that enforce bounds on the parameters. Specifically,
 
-$$
-A = \sigma(W_AX)\\
-\lambda = 5000\sigma(W_\lambda X)\\
-k = 5\sigma(W_kX)
-$$
+$$A = \sigma(W_AX)$$
+$$\lambda = 5000\sigma(W_\lambda X)$$
+$$k = 5\sigma(W_kX)$$
 
 ## Parametric Survival Model
 Recall that each individual has features $X$, survival time $T$, and censoring time $C$. Putting everything together, our linear parameter model maps $X \mapsto (A,\lambda,k)$, and
@@ -80,3 +72,5 @@ We can gain further insight into how the model differentiates survivors from non
 ![pred_param](docs/pred_param.png)
 
 In survival analysis, the [concordance index](https://square.github.io/pysurvival/metrics/c_index.html) is often used to measure how well the model ranks individual risk.
+
+We could also see how well the model recovers feature importance by setting certain linear weights to 0 in the synthetic data generation.
