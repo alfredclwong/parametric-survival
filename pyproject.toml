@@ -20,6 +20,6 @@ dependencies = [
     "scipy>=1.15.2",
     "seaborn>=0.13.2",
     "tqdm>=4.67.1",
-    "vegafusion>=2.0.2",
+    "vegafusion[embed]>=2.0.2",
     "vl-convert-python>=1.8.0",
 ]

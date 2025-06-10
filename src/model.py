@@ -1,4 +1,3 @@
-# %%
 from typing import Optional
 
 import numpy as np
@@ -114,9 +113,10 @@ class ParametricSurvivalModel:
             mask = np.isclose(y, c, atol=tol)
             censored_likelihoods = likelihoods[mask]
             observed_likelihoods = likelihoods[~mask]
-            return float(
-                -0.5 * (np.mean(censored_likelihoods) + np.mean(observed_likelihoods))
-            )
+            if len(censored_likelihoods) > 0 and len(observed_likelihoods) > 0:
+                return -0.5 * float(
+                    np.mean(censored_likelihoods) + np.mean(observed_likelihoods)
+                )
         return -likelihoods.mean()
 
     def likelihoods(
@@ -144,6 +144,3 @@ class ParametricSurvivalModel:
         likelihoods[y_eq_c_mask] = p_censored[y_eq_c_mask]
         likelihoods[y_lt_c_mask] = p_observed[y_lt_c_mask]
         return likelihoods
-
-
-# %%

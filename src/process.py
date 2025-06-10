@@ -82,32 +82,6 @@ def process_df(
     return df, X_scalers
 
 
-def plot_feature_histograms(df, features=None, maxbins=20, n_cols=5, subplot_size=120):
-    # Plot a histogram of each feature using Altair
-    charts = []
-    if features is None:
-        features = df.columns
-    dtypes = df.select(pl.col(features)).dtypes
-    for feature, dtype in zip(features, dtypes):
-        is_categorical = dtype in [pl.Categorical, pl.String, pl.Boolean]
-        if is_categorical:
-            x = alt.X(feature).type("nominal")
-        else:
-            x = alt.X(feature).bin(maxbins=maxbins)
-        chart = (
-            alt.Chart(df)
-            .mark_bar()
-            .encode(x=x, y="count()")
-            .properties(title=feature, width=subplot_size, height=subplot_size)
-        )
-        charts.append(chart)
-    n_rows = (len(charts) + n_cols - 1) // n_cols
-    charts = [
-        alt.hconcat(*charts[i * n_cols : (i + 1) * n_cols]) for i in range(n_rows)
-    ]
-    return alt.vconcat(*charts).resolve_scale(x="shared", y="shared")
-
-
 if __name__ == "__main__":
     alt.data_transformers.enable("vegafusion")
     alt.renderers.enable("browser")

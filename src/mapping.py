@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Callable
 
 import numpy as np
+import polars as pl
 
 
 class ParamMapping(ABC):
@@ -26,6 +27,11 @@ class ParamMapping(ABC):
     def get_weights(self, flatten: bool = True) -> np.ndarray:
         return self.weights.flatten() if flatten else self.weights
 
+    def get_weights_df(self) -> pl.DataFrame:
+        return pl.DataFrame(
+            {name: self.weights[:, i] for i, name in enumerate(self.param_names)}
+        )
+
     def set_weights(self, weights: np.ndarray):
         self.weights = weights.reshape(self.weights.shape)
 
@@ -42,10 +48,11 @@ class LinearParamMapping(ParamMapping):
         n_params = len(self.param_names)
         self.weights = np.random.randn(int(self.bias) + self.n_features, n_params)
 
-    def map(self, X: np.ndarray) -> dict[str, np.ndarray]:
+    def map(self, X: np.ndarray, noise: float = 0.0) -> dict[str, np.ndarray]:
         if self.bias:
             X = np.hstack([np.ones((X.shape[0], 1)), X])
         param_values = np.dot(X, self.weights)
+        param_values += noise * np.random.randn(*param_values.shape)
         params = {
             name: f(param_values[:, i])
             for i, (name, f) in enumerate(zip(self.param_names, self.transforms))

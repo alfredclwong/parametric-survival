@@ -1,4 +1,7 @@
 .DS_Store
+data/
+!data/dummy*
+
 # Python-generated files
 __pycache__/
 *.py[oc]

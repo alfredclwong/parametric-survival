@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
+from scipy.stats import weibull_min
 
 import altair as alt
 import numpy as np
@@ -151,10 +152,14 @@ class Weibull(Distribution):
         Weibull._check_params(params)
         scale, shape = params["scale"], params["shape"]
         u = np.random.uniform(0, 1, size=(n_samples, len(scale)))
-        u = u.reshape(n_samples, -1)
-        scale = scale.reshape(1, -1)
-        shape = shape.reshape(1, -1)
-        return scale * (-np.log(u + EPS)) ** (1 / (shape + EPS))
+        x = scale * (-np.log(1 - u + EPS)) ** (1 / (shape + EPS))
+        # x = np.array(
+        #     [
+        #         weibull_min.rvs(c=shape_i, scale=scale_i, size=n_samples)
+        #         for scale_i, shape_i in zip(scale, shape)
+        #     ]
+        # ).T
+        return x
 
 
 class Exponential(Distribution):
@@ -224,9 +229,12 @@ class ScaledExponential(Distribution):
     def sample(n_samples: int, params: dict[str, np.ndarray]) -> np.ndarray:
         ScaledExponential._check_params(params)
         A, k = params["A"], params["k"]
-        return A * Weibull.sample(
+        x = Weibull.sample(
             n_samples, {"scale": 1 / (k + EPS), "shape": np.ones_like(k)}
-        )
+        )  # shape: (n_samples, n_dists)
+        u = np.random.uniform(0, 1, size=x.shape)
+        x[u > A[np.newaxis, :]] = np.nan
+        return x
 
 
 class ScaledWeibull(Distribution):
@@ -270,7 +278,10 @@ class ScaledWeibull(Distribution):
     def sample(n_samples: int, params: dict[str, np.ndarray]) -> np.ndarray:
         ScaledWeibull._check_params(params)
         scale, shape, A = params["scale"], params["shape"], params["A"]
-        return A * Weibull.sample(n_samples, {"scale": scale, "shape": shape})
+        x = Weibull.sample(n_samples, {"scale": scale, "shape": shape})
+        u = np.random.uniform(0, 1, size=x.shape)
+        x[u > A[np.newaxis, :]] = np.nan
+        return x
 
 
 if __name__ == "__main__":
@@ -281,7 +292,14 @@ if __name__ == "__main__":
     x_range = np.linspace(0, 5, 101)
 
     print({k: v.shape for k, v in params.items()})
-    print(f"{x_range.shape=}")
 
     alt.renderers.enable("browser")
-    Weibull.plot(x_range, params).show()
+    alt.data_transformers.enable("vegafusion")
+    # Weibull.plot(x_range, params).show()
+
+    x = ScaledWeibull.sample(100000, params | {"A": np.array([0.2, 0.4, 0.6, 0.8, 1.0])})
+    x_df = pl.DataFrame({"x": x[:, 2]}).fill_nan(None)
+    alt.Chart(x_df).mark_bar().encode(
+        alt.X("x", bin=alt.Bin(maxbins=50)),
+        alt.Y("count()"),
+    ).show()

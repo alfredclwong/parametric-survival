@@ -1,6 +1,6 @@
 # %%
-from pathlib import Path
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -8,22 +8,21 @@ import polars as pl
 from scipy.special import expit as sigmoid
 
 from config import EPS
-from dist import Distribution, ScaledExponential, Weibull, ScaledWeibull
+from dist import Distribution, ScaledExponential, ScaledWeibull, Weibull
 from mapping import LinearParamMapping, ParamMapping
-from process import process_df, plot_feature_histograms
+from process import process_df
+from vis import plot_feature_histograms_pd, plot_feature_histograms
 
 # %%
 ROOT_DIR = Path().cwd().parent
 DATA_DIR = ROOT_DIR / "data"
-N_FEATURES = 10
-N_RELEVANT_FEATURES = 5
-N_SAMPLES = 1_000_000
+
 
 # %%
 @dataclass
 class SynthConfig:
-    n_features: int
     n_samples: int
+    n_features: int
     noise: bool
     dist_type: type[Distribution]
     param_mapping_type: type[ParamMapping]
@@ -31,73 +30,85 @@ class SynthConfig:
     feature_importances: dict[str, np.ndarray]
     biases: dict[str, float]
 
-# %%
-param_transforms = {
-    "scale": lambda x: 100 + 4900 * sigmoid(x),
-    "shape": lambda x: 0.9 + 4.1 * sigmoid(x),
-    "A": lambda x: np.clip(sigmoid(x), EPS, 1.0),
-    "k": lambda x: np.clip(sigmoid(x) / 365, EPS, 1.0),
-}
-biases = {
-    "scale": -1.0,
-    "shape": 0.5,
-    "A": 1.0,
-    "k": -0.1,
-}
-param_transforms = {
-    k: v for k, v in param_transforms.items() if k in dist_type.param_names
-}
-biases = {k: v for k, v in biases.items() if k in dist_type.param_names}
 
-# %%
 def generate_synthetic_data(cfg: SynthConfig):
     data = np.random.randn(cfg.n_samples, cfg.n_features)
     X_cols = [f"X_{i + 1}" for i in range(cfg.n_features)]
     df = pl.DataFrame(data, schema=X_cols)
     mapping = LinearParamMapping(
         n_features=cfg.n_features,
-        param_transforms=param_transforms,
-        bias=any(cfg.biases.values()),
+        param_transforms=cfg.param_transforms,
+        bias=True,
     )
-    weights_dict = mapping.get_weights_dict()
-    weights = weights.reshape(cfg.n_features + int(mapping.bias), -1)
-    weights[cfg.n_relevant_features + int(mapping.bias) :] = 0
-    if mapping.bias:
-        weights[0] = np.array([biases.get(k, 0) for k in dist_type.param_names])
+    weights = mapping.get_weights(flatten=False)
+    weights[0, :] = [cfg.biases[name] for name in mapping.param_names]
+    weights[1:, :] *= np.array(
+        [cfg.feature_importances[name] for name in mapping.param_names]
+    ).T
     mapping.set_weights(weights)
-    params = mapping.map(df[X_cols].to_numpy())
-    if noise:
-        for k, f in param_transforms.items():
-            params[k] *= 1 + 0.1 * np.random.randn(*params[k].shape)
-    t = dist_type.sample(1, params).flatten()
-    c = Weibull.sample(n_samples, {"shape": np.array([1.5]), "scale": np.array([1000])})
+    params = mapping.map(df[X_cols].to_numpy(), noise=cfg.noise)
+
+    weights_df = mapping.get_weights_df()
+    params_df = pl.DataFrame({name: pl.Series(param) for name, param in params.items()})
+
+    t = cfg.dist_type.sample(1, params).flatten()
+    c = Weibull.sample(
+        cfg.n_samples, {"shape": np.array([1.5]), "scale": np.array([1000])}
+    )
     t = np.clip(t, 0, 3000).flatten()
     c = np.clip(c, 0, 3000).flatten()
     t = np.where(t < c, t, np.nan)
     df = df.with_columns([pl.Series("T", t), pl.Series("C", c)])
-    return df, mapping
+    return df, weights_df, params_df
 
 
 # %%
-dist_type = ScaledWeibull
-df, mapping = generate_synthetic_data(
-    N_FEATURES, N_SAMPLES, dist_type, N_RELEVANT_FEATURES
+cfg = SynthConfig(
+    n_samples=10_000_000,
+    n_features=10,
+    noise=True,
+    dist_type=ScaledWeibull,
+    param_mapping_type=LinearParamMapping,
+    param_transforms={
+        "A": lambda x: np.clip(sigmoid(x), EPS, 1.0),
+        "scale": lambda x: 5000 * np.clip(sigmoid(x), EPS, 1.0),
+        "shape": lambda x: 5 * np.clip(sigmoid(x), EPS, 1.0),
+    },
+    feature_importances={
+        "A": np.array([1, 1, 1, 0, 0, 0, 0, 0, 0, 0]) / 3 * 5,
+        "scale": np.array([0, 0, 1, 1, 1, 0, 0, 0, 0, 0]) / 3,
+        "shape": np.array([0, 0, 0, 0, 1, 1, 1, 0, 0, 0]) / 3,
+    },
+    biases={
+        "A": -8,  # Increasing A increases P(D)
+        "scale": -0.5,  # Decreasing scale increases P(D)
+        "shape": 0.2,  # Decreasing shape increases P(D)
+    },
 )
+
+df, weights_df, params_df = generate_synthetic_data(cfg)
 df, _ = process_df(df)
-weights = mapping.get_weights().reshape(N_FEATURES + int(mapping.bias), -1)
-rows = ["bias"] if mapping.bias else []
-rows += [f"X_{i + 1}" for i in range(N_FEATURES)]
-weights_df = pl.DataFrame(weights, schema=dist_type.param_names).with_columns(
-    pl.Series("feature", rows)
-)
-weights_df
+
+# print(df)
+# with pl.Config(tbl_rows=cfg.n_features + 1):
+#     print(weights_df)
+# print(params_df)
+
+plot_features = ["T", "C", "D", "Y"]
+plot_feature_histograms(df, features=plot_features, n_cols=4).show()
+plot_feature_histograms(params_df, n_cols=3).show()
+pct_D = df.select(pl.col("D").mean()).item()
+print(f"{pct_D:.2%}")
 
 # %%
-import altair as alt
-
-alt.data_transformers.enable("vegafusion")
-plot_feature_histograms(df)
+dummy_df = pl.read_parquet(DATA_DIR / "dummy_processed.parquet")
+plot_feature_histograms(dummy_df, features=plot_features, n_cols=4).show()
+pct_D = dummy_df.select(pl.col("D").mean()).item()
+print(f"{pct_D:.2%}")
 
 # %%
-df.write_parquet(DATA_DIR / "synth.parquet")
-weights_df.write_parquet(DATA_DIR / "synth_weights.parquet")
+# df.write_parquet(DATA_DIR / "synth.parquet")
+# weights_df.write_parquet(DATA_DIR / "synth_weights.parquet")
+# params_df.write_parquet(DATA_DIR / "synth_params.parquet")
+
+# %%
