@@ -23,7 +23,7 @@ DATA_DIR = ROOT_DIR / "data"
 class SynthConfig:
     n_samples: int
     n_features: int
-    noise: bool
+    noise: float  # multiplicative noise on the parameters = 1 + noise * N(0, 1)
     dist_type: type[Distribution]
     param_mapping_type: type[ParamMapping]
     param_transforms: dict[str, Callable]
@@ -64,9 +64,9 @@ def generate_synthetic_data(cfg: SynthConfig):
 
 # %%
 cfg = SynthConfig(
-    n_samples=10_000_000,
+    n_samples=1_000_000,
     n_features=10,
-    noise=True,
+    noise=0.1,
     dist_type=ScaledWeibull,
     param_mapping_type=LinearParamMapping,
     param_transforms={
@@ -80,9 +80,9 @@ cfg = SynthConfig(
         "shape": np.array([0, 0, 0, 0, 1, 1, 1, 0, 0, 0]) / 3,
     },
     biases={
-        "A": -8,  # Increasing A increases P(D)
+        "A": -10,  # Increasing A increases P(D)
         "scale": -0.5,  # Decreasing scale increases P(D)
-        "shape": 0.2,  # Decreasing shape increases P(D)
+        "shape": -0.3,  # Decreasing shape increases P(D)
     },
 )
 
@@ -107,8 +107,8 @@ pct_D = dummy_df.select(pl.col("D").mean()).item()
 print(f"{pct_D:.2%}")
 
 # %%
-# df.write_parquet(DATA_DIR / "synth.parquet")
-# weights_df.write_parquet(DATA_DIR / "synth_weights.parquet")
-# params_df.write_parquet(DATA_DIR / "synth_params.parquet")
+df.write_parquet(DATA_DIR / "synth.parquet")
+weights_df.write_parquet(DATA_DIR / "synth_weights.parquet")
+params_df.write_parquet(DATA_DIR / "synth_params.parquet")
 
 # %%

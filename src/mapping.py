@@ -52,7 +52,7 @@ class LinearParamMapping(ParamMapping):
         if self.bias:
             X = np.hstack([np.ones((X.shape[0], 1)), X])
         param_values = np.dot(X, self.weights)
-        param_values += noise * np.random.randn(*param_values.shape)
+        param_values *= 1 + (noise * np.random.randn(*param_values.shape))
         params = {
             name: f(param_values[:, i])
             for i, (name, f) in enumerate(zip(self.param_names, self.transforms))
