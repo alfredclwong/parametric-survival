@@ -63,9 +63,14 @@ We use a *ScaledWeibull* distribution and a known linear parameter model to gene
 We use *scipy.minimize* to fit the linear parameter model such that the negative log-likelihood across the training data is minimised. Since the dataset is heavily imbalanced, we avoid overfitting by training each class $D = \text{true/false}$ with equal weighting. It may be necessary to further up-weight the diagnosed likelihoods due to differences in magnitude - $f(t) \approx 10^{-3} F(c)$.
 
 ## Evaluation
-There are several ways to evaluate model performance. The most straightforward is to plot the ROC for survival predictions.
+There are several ways to evaluate model performance. The most straightforward is to plot the ROC for survival predictions. Since our discrete $D$ variable represents event occurence, i.e. non-survival, we set $D_{true} = D$ and $D_{pred} = 1 - S(c) = F(c;A,\lambda,k)$.
 
 ![roc](docs/roc.png)
+
+Alternatively, we can evaluate binary model predictions at fixed time snapshots. At each time $t$, each subject has either had an event, not had an event, or is censored. We mask out the subjects which were censored with no event and calculate the AUC for the binary classification task, then plot the AUCs over several timestamps (Left: synthetic data, Right: dummy data).
+
+![t_auc](docs/synth_tauc.png)
+![t_auc_dummy](docs/dummy_tauc.png)
 
 We can gain further insight into how the model differentiates survivors from non-survivors by plotting the distribution of predicted parameters, split by class. Here, we see that the diagnosed cases have high $A$ and low $\lambda$.
 

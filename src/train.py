@@ -1,7 +1,7 @@
 # %%
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional
 
 import altair as alt
 import numpy as np
@@ -25,6 +25,7 @@ from eval import (
     concordance_index,
     plot_confusion_matrix,
     plot_roc,
+    t_auc,
 )
 
 # %%
@@ -39,7 +40,7 @@ def train_val_test_split(
     train_ratio: float = 0.8,
     val_ratio: float = 0.1,
     split_d: bool = True,
-):
+) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
     if split_d:
         # Ensure equal distribution of D in train, val, test sets
         d_true_df = df.filter(pl.col("D"))
@@ -70,7 +71,7 @@ def train_val_test_split(
 @dataclass
 class RunConfig:
     synth_data_path: Path
-    n_samples: int | tuple[int, int]
+    n_samples: Optional[int | tuple[int, int]]
     mapping: type[ParamMapping]
     dist_type: type[Distribution]
     bias: bool
@@ -213,6 +214,11 @@ def run(cfg: RunConfig):
     test_c_index = concordance_index(
         test_pred_df["Y"].to_numpy(), test_pred_df["Y_pred"].to_numpy()
     )
+    # Calculate time-dependent AUC for test data
+    ts = np.arange(200, 2500, 50)
+    t_aucs = t_auc(model, ts, x_test, t_test, c_test)
+    aucs_df = pl.DataFrame({"Time": ts, "AUC": t_aucs.flatten()})
+
     # Print the metrics
     print("Training Metrics:")
     for metric, value in train_metrics.items():
@@ -222,6 +228,18 @@ def run(cfg: RunConfig):
     for metric, value in test_metrics.items():
         print(f"  {metric}: {value:.4f}")
     print(f"  C-index: {test_c_index:.4f}")
+    print("\nTime-dependent AUCs:")
+    print(aucs_df)
+
+    # Plot time-dependent AUCs
+    aucs_df = aucs_df.fill_nan(None)
+    aucs_chart = (
+        alt.Chart(aucs_df)
+        .mark_line()
+        .encode(x="Time", y="AUC")
+        .properties(title="Time-dependent AUCs")
+    )
+    aucs_chart.show()
 
     # Plot ROC curve for training data
     train_roc_fig = plot_roc(
@@ -249,36 +267,37 @@ def run(cfg: RunConfig):
     train_cm_fig.show()
     test_cm_fig.show()
 
-    return model, history
+    return model, history, test_df
 
 
 # %%
+n_samples = 50_000
+n_events = 100
 cfg = RunConfig(
-    # synth_data_path=DATA_DIR / "dummy_processed.parquet",
-    # n_samples=None,
-    synth_data_path=DATA_DIR / "synth.parquet",
-    # n_samples=(10_000, 10_000),
-    n_samples=100_000,
+    synth_data_path=DATA_DIR / "dummy_processed.parquet",
+    n_samples=None,
+    # synth_data_path=DATA_DIR / "synth.parquet",
+    # n_samples=(n_events, n_samples - n_events),
     mapping=LinearParamMapping,
     dist_type=ScaledWeibull,
     bias=True,
     balance=True,
     param_transforms={
         "A": lambda x: np.clip(sigmoid(x), EPS, 1.0),
-        "scale": lambda x: 1 + 4900 * np.clip(sigmoid(x), EPS, 1.0),
-        "shape": lambda x: 0.1 + 4.9 * np.clip(sigmoid(x), EPS, 1.0),
+        "scale": lambda x: 100 + 4900 * np.clip(sigmoid(x), EPS, 1.0),
+        "shape": lambda x: 0.5 + 4.5 * np.clip(sigmoid(x), EPS, 1.0),
     },
 )
 
-model, history = run(cfg)
+model, history, test_df = run(cfg)
 
 # %%
 with pl.Config(tbl_rows=11):
     print(model.param_mapping.get_weights_df())
 
 # %%
-# # Save the model weights
-# model_weights_path = DATA_DIR / f"{model.dist_type.__name__}_weights.npy"
-# np.save(model_weights_path, model.param_mapping.get_weights())
+# Save the model weights
+model_weights_path = DATA_DIR / f"{cfg.synth_data_path.stem}_{model.dist_type.__name__}_weights.npy"
+np.save(model_weights_path, model.param_mapping.get_weights())
 
 # %%

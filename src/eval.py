@@ -1,22 +1,67 @@
 from itertools import combinations
-from typing import Dict, List
+from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
 import plotly.graph_objects as go
 import seaborn as sns
-from plotly.subplots import make_subplots
 from sklearn.metrics import (
     accuracy_score,
-    auc,
     confusion_matrix,
     f1_score,
     precision_score,
     recall_score,
     roc_auc_score,
-    roc_curve,
 )
 from tqdm.auto import tqdm
+
+from model import ParametricSurvivalModel
+
+
+def t_auc(
+    model: ParametricSurvivalModel,
+    ts: np.ndarray,
+    X: np.ndarray,
+    T: np.ndarray,
+    C: Optional[np.ndarray] = None,
+) -> np.ndarray:
+    """Calculate the time-dependent AUC for survival data.
+
+    At each time point t, each subject has either had an event, not yet had an event, or is censored.
+    We don't try to predict the censoring times, so we only consider the uncensored subjects.
+    A ParametricSurvivalModel cdf gives the probability of an event occurring before time t.
+    The AUC is calculated as the area under the ROC curve for the predicted probabilities of the
+    event occurring before time t, compared to the true event indicator (1 if event occurred, 0 if not).
+
+    Args:
+        model (ParametricSurvivalModel): The survival model to use for predictions.
+        ts (np.ndarray): Time points at which to evaluate the AUC.
+        X (np.ndarray): Feature matrix of shape (n_samples, n_features).
+        T (np.ndarray): True event times of shape (n_samples,).
+        C (Optional[np.ndarray]): Censoring times of shape (n_samples,). If None, no censoring is considered.
+
+    Returns:
+        np.ndarray: Array of AUC values for each time point in `ts`.
+    """
+    n = X.shape[0]
+    ts = np.tile(ts[:, np.newaxis], (1, n))
+    params = model.param_mapping.map(X)
+    d_pred = model.dist_type.cdf(ts, params)
+    d_true = (ts > T).astype(int)
+    if C is None:
+        mask = np.ones_like(ts, dtype=bool)
+    else:
+        # Mask out censored subjects. If an event occurs before the censoring time, that subject is not censored.
+        mask = (ts < C) | (T < C)
+    aucs = np.array(
+        [
+            roc_auc_score(d_true[i][mask[i]], d_pred[i][mask[i]])
+            if mask[i].sum() > 0
+            else np.nan
+            for i in range(len(ts))
+        ]
+    )
+    return aucs
 
 
 # Predictions:
