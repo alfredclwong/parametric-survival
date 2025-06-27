@@ -86,6 +86,7 @@ class ParametricSurvivalModel:
                 {"train_loss": f"{train_loss:.4f}", "test_loss": f"{test_loss:.4f}"}
             )
 
+        # TODO generalise for e.g. NN sgd
         initial_weights = self.param_mapping.get_weights()
         result = minimize(
             self.neg_log_likelihood,

@@ -196,6 +196,8 @@ def run(cfg: RunConfig):
     plot_params(test_pred_df, param_names).show()
     plot_params_by_d(test_pred_df, param_names).show()
     plot_params_3d(test_pred_df, param_names).show()
+
+    # TODO plot average over class (either average the curve or the params)
     plot_samples_by_d(test_df, model).show()
 
     # Calculate metrics for training data
@@ -296,8 +298,8 @@ with pl.Config(tbl_rows=11):
     print(model.param_mapping.get_weights_df())
 
 # %%
-# Save the model weights
-model_weights_path = DATA_DIR / f"{cfg.synth_data_path.stem}_{model.dist_type.__name__}_weights.npy"
-np.save(model_weights_path, model.param_mapping.get_weights())
+# # Save the model weights
+# model_weights_path = DATA_DIR / f"{cfg.synth_data_path.stem}_{model.dist_type.__name__}_weights.npy"
+# np.save(model_weights_path, model.param_mapping.get_weights())
 
 # %%

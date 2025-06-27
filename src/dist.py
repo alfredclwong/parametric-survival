@@ -34,6 +34,7 @@ class Distribution(ABC):
         pass
 
     @staticmethod
+    @abstractmethod
     def sample(n_samples: int, params: dict[str, np.ndarray]) -> np.ndarray:
         pass
 

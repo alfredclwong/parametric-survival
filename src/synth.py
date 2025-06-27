@@ -78,6 +78,7 @@ cfg = SynthConfig(
         "A": np.array([1, 1, 1, 0, 0, 0, 0, 0, 0, 0]) / 3 * 5,
         "scale": np.array([0, 0, 1, 1, 1, 0, 0, 0, 0, 0]) / 3,
         "shape": np.array([0, 0, 0, 0, 1, 1, 1, 0, 0, 0]) / 3,
+        # TODO Fisher info/ param recov: Can vary a feature importance and see model response
     },
     biases={
         "A": -10,  # Increasing A increases P(D)
