@@ -1,77 +1,64 @@
-from abc import ABC, abstractmethod
-from typing import Callable
+from dataclasses import dataclass
+from typing import Callable, Optional
 
-import numpy as np
+import torch as t
 import polars as pl
 
 
-class ParamMapping(ABC):
-    n_features: int
-    param_names: list[str]
-    weights: np.ndarray
-    transforms: list[Callable]
-
-    def __init__(self, n_features: int, param_transforms: dict[str, Callable]):
-        self.n_features = n_features
-        self.param_names = list(param_transforms.keys())
-        self.transforms = list(param_transforms.values())
-
-    @abstractmethod
-    def init_weights(self):
-        raise NotImplementedError
-
-    @abstractmethod
-    def map(self, X: np.ndarray) -> dict[str, np.ndarray]:
-        raise NotImplementedError
-
-    def get_weights(self, flatten: bool = True) -> np.ndarray:
-        return self.weights.flatten() if flatten else self.weights
-
-    def get_weights_df(self) -> pl.DataFrame:
-        return pl.DataFrame(
-            {name: self.weights[:, i] for i, name in enumerate(self.param_names)}
-        )
-
-    def set_weights(self, weights: np.ndarray):
-        self.weights = weights.reshape(self.weights.shape)
+@dataclass(frozen=True)
+class ParamMappingConfig:
+    d_in: int
+    d_hidden: list[int]
+    param_transforms: dict[str, Callable]
+    dropout: Optional[float] = None
+    activation: Callable = t.nn.ReLU
 
 
-class LinearParamMapping(ParamMapping):
-    def __init__(
-        self, n_features: int, param_transforms: dict[str, Callable], bias: bool = True
-    ):
-        super().__init__(n_features, param_transforms)
-        self.bias = bias
+class ParamMapping(t.nn.Module):
+    def __init__(self, cfg: ParamMappingConfig):
+        super().__init__()
+        d_out = len(cfg.param_transforms)
+        dims: list[int] = [cfg.d_in, *cfg.d_hidden, d_out]
+        layers = []
+        for i in range(len(dims) - 1):
+            layer = t.nn.Linear(dims[i], dims[i + 1], bias=False)
+            layers.append(layer)
+            if i < len(dims) - 2:
+                layers.append(cfg.activation())
+        self.mlp = t.nn.Sequential(*layers)
+        self.param_transforms = cfg.param_transforms
         self.init_weights()
 
     def init_weights(self):
-        n_params = len(self.param_names)
-        self.weights = np.random.randn(int(self.bias) + self.n_features, n_params)
+        for m in self.mlp.modules():
+            if isinstance(m, t.nn.Linear):
+                t.nn.init.kaiming_uniform_(m.weight, nonlinearity="relu")
+                if m.bias is not None:
+                    t.nn.init.zeros_(m.bias)
 
-    def map(self, X: np.ndarray, noise: float = 0.0) -> dict[str, np.ndarray]:
-        if self.bias:
-            X = np.hstack([np.ones((X.shape[0], 1)), X])
-        param_values = np.dot(X, self.weights)
-        param_values *= 1 + (noise * np.random.randn(*param_values.shape))
+    def forward(self, x: t.Tensor) -> dict[str, t.Tensor]:
+        x = self.mlp(x)
         params = {
-            name: f(param_values[:, i])
-            for i, (name, f) in enumerate(zip(self.param_names, self.transforms))
+            name: transform(x[:, i])
+            for i, (name, transform) in enumerate(self.param_transforms.items())
         }
         return params
 
+    @property
+    def weights_df(self) -> pl.DataFrame:
+        return pl.DataFrame({
+            f"{param}_{layer}": pl.Series(self.mlp[layer].weight[i].detach().cpu().numpy().flatten())
+            for i, param in enumerate(self.param_transforms.keys())
+            for layer in range(len(self.mlp))
+            if isinstance(self.mlp[layer], t.nn.Linear)
+        })
 
-class ConstantParamMapping(ParamMapping):
-    def __init__(self, param_transforms: dict[str, Callable]):
-        super().__init__(n_features=0, param_transforms=param_transforms)
-        self.init_weights()
-
-    def init_weights(self):
-        self.weights = np.random.randn(len(self.param_names))
-
-    def map(self, X: np.ndarray) -> dict[str, np.ndarray]:
-        # X.shape: (n_samples, n_features)
-        params = {
-            name: f(np.full(X.shape[0], self.weights[i]))
-            for i, (name, f) in enumerate(zip(self.param_names, self.transforms))
-        }
-        return params
+    @weights_df.setter
+    def weights_df(self, df: pl.DataFrame):
+        for i, param in enumerate(self.param_transforms.keys()):
+            for layer in range(len(self.mlp)):
+                if isinstance(self.mlp[layer], t.nn.Linear):
+                    self.mlp[layer].weight.data[i] = t.tensor(
+                        df[f"{param}_{layer}"].to_numpy(),
+                        dtype=t.float32,
+                    ).view_as(self.mlp[layer].weight[i])

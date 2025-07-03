@@ -1,147 +1,176 @@
+from dataclasses import dataclass
 from typing import Optional
 
-import numpy as np
-from scipy.optimize import minimize
+import polars as pl
+import torch as t
 from tqdm.auto import tqdm
 
-from config import EPS
-from dist import Distribution
-from mapping import ParamMapping
+from config import EPS, INF
+from mapping import ParamMapping, ParamMappingConfig
 
 
-class ParametricSurvivalModel:
-    """
-    Model censored clinical data (X, Y, C) using a parametric distribution.
+@dataclass(frozen=True)
+class TrainConfig:
+    n_epochs: int
+    learning_rate: float
+    weight_decay: float
+    balance: bool
+    batch_size: Optional[int] = None
 
-    The model maps input features X to parameters of a distribution, which are
-    used to predict the probability density function (PDF) of the outcome Y|C.
 
-    The model is fitted to the training data by finding parameters which
-    maximize the likelihood of the observed data under the assumed distribution.
-    """
-
+class ParametricSurvivalModel(t.nn.Module):
     def __init__(
         self,
-        dist_type: type[Distribution],
-        param_mapping: ParamMapping,
+        dist_type: type[t.distributions.Distribution],
+        mapping_cfg: ParamMappingConfig,
+        device: str,
     ):
+        super().__init__()
         self.dist_type = dist_type
-        self.param_mapping = param_mapping
+        self.mapping = ParamMapping(mapping_cfg).to(device)
+        self.device = device
 
-    def median_survival_time(self, x: np.ndarray) -> np.ndarray:
-        params = self.param_mapping.map(x)
-        return self.dist_type.median(params)
+    def get_dist(self, x: t.Tensor) -> t.distributions.Distribution:
+        params = self.mapping(x)
+        return self.dist_type(**params)
+
+    def log_likelihood(self, x: t.Tensor, y: t.Tensor, d: t.Tensor) -> t.Tensor:
+        """
+        Compute the log-likelihood of the observed data under the model.
+        Args:
+            x (t.Tensor): Input features of shape (batch_size, d_in).
+            y (t.Tensor): Observed outcomes of shape (batch_size,).
+            d (t.Tensor): Diagnosis indicators of shape (batch_size,).
+        Returns:
+            t.Tensor: Log-likelihood of the observed data.
+        """
+        x = x.to(self.device, dtype=t.float32)
+        y = y.to(self.device, dtype=t.float32)
+        d = d.to(self.device, dtype=t.bool)
+        dist = self.get_dist(x)
+        p_event = dist.log_prob(y)
+        p_censor = (1 - dist.cdf(y)).clip(min=EPS).log()
+        # ll = t.where(d, p_event, p_censor)
+        ll = d * p_event + (~d) * p_censor
+        return ll
+
+    def loss(
+        self,
+        x: t.Tensor,
+        y: t.Tensor,
+        d: t.Tensor,
+        balance: bool,
+    ) -> t.Tensor:
+        ll = self.log_likelihood(x, y, d)
+        if balance:
+            loss_pos = ll[d == 1].nanmean()
+            loss_neg = ll[d == 0].nanmean()
+            return -(loss_pos + loss_neg) / 2
+        else:
+            return -ll.nanmean()
 
     def fit(
         self,
-        x: np.ndarray,
-        y: np.ndarray,
-        c: np.ndarray,
-        x_test=None,
-        y_test=None,
-        c_test=None,
-        maxiter: int = 1000,
-        balance: bool = False,
-        patience: Optional[int] = None,
-    ):
-        test = x_test is not None and y_test is not None and c_test is not None
-        pbar = tqdm(desc="Fitting model", total=maxiter)
+        x: t.Tensor,
+        y: t.Tensor,
+        d: t.Tensor,
+        x_val: t.Tensor,
+        y_val: t.Tensor,
+        d_val: t.Tensor,
+        cfg: TrainConfig,
+    ) -> dict[str, list[float]]:
+        """
+        Fit the model using k-fold cross-validation.
+        Args:
+            x (t.Tensor): Input features of shape (n_samples, d_in).
+            y (t.Tensor): Observed outcomes of shape (n_samples,).
+            d (t.Tensor): Diagnosis indicators of shape (n_samples,).
+            k_folds (int): Number of folds for cross-validation.
+            n_epochs (int): Number of epochs for training.
+        Returns:
+            t.Tensor: Log-likelihood of the observed data for each fold.
+        """
+        x = x.to(self.device, dtype=t.float32)
+        y = y.to(self.device, dtype=t.float32)
+        d = d.to(self.device, dtype=t.bool)
+        x_val = x_val.to(self.device, dtype=t.float32)
+        y_val = y_val.to(self.device, dtype=t.float32)
+        d_val = d_val.to(self.device, dtype=t.bool)
 
-        history = []
-        best_test_loss = np.inf
-        best_test_loss_step = -1
-        best_weights = self.param_mapping.get_weights()
-        patience_counter = 0
+        self.mapping.init_weights()
+        optimizer = t.optim.Adam(
+            self.parameters(), lr=cfg.learning_rate, weight_decay=cfg.weight_decay
+        )
+        # optimizer = t.optim.SGD(
+        #     self.parameters(),
+        #     lr=cfg.learning_rate,
+        #     weight_decay=cfg.weight_decay,
+        #     momentum=0.9,
+        # )
 
-        def callback(weights):
-            step = pbar.n + 1
-            train_loss = self.neg_log_likelihood(weights, x, y, c, balance=balance)
-            history.append((step, "train_loss", train_loss))
-            test_loss = np.nan
-            if test:
-                test_loss = self.neg_log_likelihood(
-                    weights, x_test, y_test, c_test, balance=balance
-                )
-                history.append((step, "test_loss", test_loss))
-                nonlocal \
-                    best_test_loss, \
-                    patience_counter, \
-                    best_weights, \
-                    best_test_loss_step
-                if test_loss < best_test_loss:
-                    patience_counter = 0
-                    best_weights = weights
-                    best_test_loss = test_loss
-                    best_test_loss_step = step
-                else:
-                    patience_counter += 1
-                if patience is not None and patience_counter >= patience:
-                    pbar.write(
-                        f"Early stopping at step {step} with test loss {test_loss:.4f}"
-                    )
-                    pbar.close()
-                    raise StopIteration("Early stopping triggered")
-            pbar.update(1)
-            pbar.set_postfix(
-                {"train_loss": f"{train_loss:.4f}", "test_loss": f"{test_loss:.4f}"}
+        history = {"train": [], "val": []}
+        best = {"step": -1, "val_loss": INF, "state_dict": self.state_dict()}
+        for epoch in (pbar := tqdm(range(cfg.n_epochs))):
+            self.train()
+            batch_size = len(x) if cfg.batch_size is None else cfg.batch_size
+            loss = t.tensor(t.nan, device=self.device)
+            for i in range(0, len(x), batch_size):
+                x_batch = x[i : i + batch_size]
+                y_batch = y[i : i + batch_size]
+                d_batch = d[i : i + batch_size]
+                loss = self.loss(x_batch, y_batch, d_batch, cfg.balance)
+                loss.backward()
+                optimizer.step()
+                optimizer.zero_grad()
+
+            self.eval()
+            with t.no_grad():
+                val_loss = self.loss(x_val, y_val, d_val, cfg.balance)
+            if val_loss < best["val_loss"]:
+                best = {
+                    "step": epoch,
+                    "val_loss": val_loss.item(),
+                    "state_dict": self.state_dict(),
+                }
+
+            history["train"].append(loss.item())
+            history["val"].append(val_loss.item())
+            pbar.set_description(
+                f"Train Loss: {loss.item():.4f}, Val Loss: {val_loss.item():.4f}"
             )
 
-        # TODO generalise for e.g. NN sgd
-        initial_weights = self.param_mapping.get_weights()
-        result = minimize(
-            self.neg_log_likelihood,
-            initial_weights,
-            args=(x, y, c, balance),
-            options={"disp": True, "maxiter": maxiter},
-            callback=callback,
-        )
-        pbar.close()
+        print("Training complete.")
+        print(f"Best validation loss: {best['val_loss']:.4f} at step {best['step']}")
+        self.load_state_dict(best["state_dict"])
 
-        if not result.success:
-            print("Optimization failed: " + result.message)
-        if test:
-            print(f"Best test loss: {best_test_loss:.4f} at step {best_test_loss_step}")
-            self.param_mapping.set_weights(best_weights)
-        else:
-            self.param_mapping.set_weights(result.x)
         return history
 
-    def neg_log_likelihood(self, weights, x, y, c, balance=False, tol=EPS) -> float:
-        self.param_mapping.set_weights(weights)  # TODO make a new instance instead?
-        likelihoods = self.likelihoods(x, y, c, log=True)
-        likelihoods = np.nan_to_num(likelihoods, neginf=-1e10)
-        if balance:
-            mask = np.isclose(y, c, atol=tol)
-            censored_likelihoods = likelihoods[mask]
-            observed_likelihoods = likelihoods[~mask]
-            if len(censored_likelihoods) > 0 and len(observed_likelihoods) > 0:
-                return -0.5 * float(
-                    np.mean(censored_likelihoods) + np.mean(observed_likelihoods)
-                )
-        return -likelihoods.mean()
+    def predict(
+        self, x: t.Tensor, y: t.Tensor, c: t.Tensor, d: t.Tensor
+    ) -> pl.DataFrame:
+        x = x.to(self.device, dtype=t.float32)
+        y = y.to(self.device, dtype=t.float32)
+        c = c.to(self.device, dtype=t.float32)
+        d = d.to(self.device, dtype=t.bool)
 
-    def likelihoods(
-        self,
-        x: np.ndarray,
-        y: np.ndarray,
-        c: np.ndarray,
-        eps: float = EPS,
-        log: bool = False,
-    ) -> np.ndarray:
-        """
-        x.shape: (n_samples, n_features)
-        y.shape: (n_samples,)
-        c.shape: (n_samples,)
-        """
-        params = self.param_mapping.map(x)
+        with t.no_grad():
+            params = self.mapping(x)
+            df = pl.DataFrame(
+                {
+                    "Y": y.cpu(),
+                    "C": c.cpu(),
+                    "D": d.cpu(),
+                    **{k: v.cpu() for k, v in params.items()},
+                    "logL": self.log_likelihood(x, y, d).cpu(),
+                    "D_pred": self.dist_type(**params).cdf(c).cpu(),
+                    "T_pred": self.median_survival_time(x).cpu(),
+                }
+            ).with_columns(
+                Y_pred=pl.min_horizontal(["T_pred", "C"]),
+            )
+        return df
 
-        p_observed = self.dist_type.pdf(y, params, log=log)
-        p_censored = 1 - self.dist_type.cdf(y, params)
-        p_censored = np.log(p_censored + eps) if log else p_censored
-
-        likelihoods = np.full_like(y, dtype=float, fill_value=0 if log else 0)
-        y_eq_c_mask = np.isclose(y, c, atol=eps)
-        y_lt_c_mask = y < c
-        likelihoods[y_eq_c_mask] = p_censored[y_eq_c_mask]
-        likelihoods[y_lt_c_mask] = p_observed[y_lt_c_mask]
-        return likelihoods
+    def median_survival_time(self, x: t.Tensor) -> t.Tensor:
+        dist = self.get_dist(x)
+        median = dist.icdf(t.tensor(0.5))
+        return median

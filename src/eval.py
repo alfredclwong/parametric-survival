@@ -1,13 +1,12 @@
 from itertools import combinations
 from typing import Optional
 
-import matplotlib.pyplot as plt
+import altair as alt
 import numpy as np
-import plotly.graph_objects as go
-import seaborn as sns
+import polars as pl
+import torch as t
 from sklearn.metrics import (
     accuracy_score,
-    confusion_matrix,
     f1_score,
     precision_score,
     recall_score,
@@ -16,6 +15,99 @@ from sklearn.metrics import (
 from tqdm.auto import tqdm
 
 from model import ParametricSurvivalModel
+from vis import (
+    plot_confusion_matrix,
+    plot_likelihoods,
+    plot_params,
+    plot_params_3d,
+    plot_params_by_d,
+    plot_roc,
+    plot_t_auc,
+)
+
+
+def show_evals(
+    model: ParametricSurvivalModel,
+    x_train: t.Tensor,
+    y_train: t.Tensor,
+    c_train: t.Tensor,
+    d_train: t.Tensor,
+    x_test: t.Tensor,
+    y_test: t.Tensor,
+    c_test: t.Tensor,
+    d_test: t.Tensor,
+):
+    # Make predictions with the fitted model
+    pred_df = model.predict(x_train, y_train, c_train, d_train)
+    test_pred_df = model.predict(x_test, y_test, c_test, d_test)
+
+    plot_likelihoods(test_pred_df).show()
+
+    param_names = list(model.mapping.param_transforms.keys())
+    plot_params(test_pred_df, param_names).show()
+    plot_params_by_d(test_pred_df, param_names).show()
+    plot_params_3d(test_pred_df, param_names).show()
+
+    # # TODO plot average over class (either average the curve or the params)
+    # plot_samples_by_d(test_df, model).show()
+
+    # Calculate metrics for training data
+    train_metrics = binary_classification_metrics(
+        pred_df["D"].to_numpy(), pred_df["D_pred"].to_numpy() > 0.5
+    )
+    # Calculate metrics for test data
+    test_metrics = binary_classification_metrics(
+        test_pred_df["D"].to_numpy(), test_pred_df["D_pred"].to_numpy() > 0.5
+    )
+    # Calculate C-index for training data
+    train_c_index = concordance_index(
+        pred_df["Y"].to_numpy(), pred_df["Y_pred"].to_numpy()
+    )
+    # Calculate C-index for test data
+    test_c_index = concordance_index(
+        test_pred_df["Y"].to_numpy(), test_pred_df["Y_pred"].to_numpy()
+    )
+    # Calculate time-dependent AUC for test data
+    ts = np.arange(200, 2500, 50)
+    t_aucs = t_auc(
+        model, ts, x_test.cpu().numpy(), y_test.cpu().numpy(), c_test.cpu().numpy()
+    )
+    aucs_df = pl.DataFrame({"Time": ts, "AUC": t_aucs.flatten()})
+
+    print("Training Metrics:")
+    for metric, value in train_metrics.items():
+        print(f"  {metric}: {value:.4f}")
+    print(f"  C-index: {train_c_index:.4f}")
+    print("\nTest Metrics:")
+    for metric, value in test_metrics.items():
+        print(f"  {metric}: {value:.4f}")
+    print(f"  C-index: {test_c_index:.4f}")
+    print("\nTime-dependent AUCs:")
+    print(aucs_df)
+
+    plot_roc(
+        pred_df["D"].to_numpy(),
+        pred_df["D_pred"].to_numpy(),
+        title="ROC Curve (Train)",
+    ).show()
+    plot_roc(
+        test_pred_df["D"].to_numpy(),
+        test_pred_df["D_pred"].to_numpy(),
+        title="ROC Curve (Test)",
+    ).show()
+
+    plot_t_auc(aucs_df).show()
+
+    plot_confusion_matrix(
+        pred_df["D"].to_numpy(),
+        pred_df["D_pred"].to_numpy() > 0.5,
+        title="Confusion Matrix (Train)",
+    ).show()
+    plot_confusion_matrix(
+        test_pred_df["D"].to_numpy(),
+        test_pred_df["D_pred"].to_numpy() > 0.5,
+        title="Confusion Matrix (Test)",
+    ).show()
 
 
 def t_auc(
@@ -45,8 +137,10 @@ def t_auc(
     """
     n = X.shape[0]
     ts = np.tile(ts[:, np.newaxis], (1, n))
-    params = model.param_mapping.map(X)
-    d_pred = model.dist_type.cdf(ts, params)
+    params = model.mapping.forward(t.tensor(X, device=model.device, dtype=t.float32))
+    d_pred = (
+        model.dist_type(**params).cdf(t.tensor(ts, device=model.device)).detach().cpu()
+    )
     d_true = (ts > T).astype(int)
     if C is None:
         mask = np.ones_like(ts, dtype=bool)
@@ -118,56 +212,3 @@ def concordance_index(y_true, y_pred):
         total_pairs += 1
 
     return concordant_pairs / total_pairs if total_pairs > 0 else np.nan
-
-
-def plot_roc(y_true, y_scores, title="ROC Curve"):
-    from sklearn.metrics import roc_curve
-
-    fpr, tpr, thresholds = roc_curve(y_true, y_scores)
-    fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=fpr,
-            y=tpr,
-            mode="lines",
-            name="ROC Curve",
-            line=dict(color="blue"),
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=[0, 1],
-            y=[0, 1],
-            mode="lines",
-            name="Random Guessing",
-            line=dict(color="red", dash="dash"),
-        )
-    )
-    fig.update_layout(
-        title=title,
-        xaxis_title="False Positive Rate",
-        yaxis_title="True Positive Rate",
-        width=600,
-        height=400,
-    )
-    return fig
-
-
-# Plot the confusion matrix for training data
-def plot_confusion_matrix(y_true, y_pred, title="Confusion Matrix"):
-    cm = confusion_matrix(y_true, y_pred)
-    fig, ax = plt.subplots(figsize=(2, 2))
-    sns.heatmap(
-        cm,
-        annot=True,
-        fmt="d",
-        cmap="Blues",
-        xticklabels=["Negative", "Positive"],
-        yticklabels=["Negative", "Positive"],
-        ax=ax,
-    )
-    ax.invert_yaxis()
-    ax.set_xlabel("Predicted")
-    ax.set_ylabel("True")
-    ax.set_title(title)
-    return fig

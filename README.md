@@ -1,14 +1,14 @@
 # Parametric Survival Library
-This library is being used to model survival times (T) in clinical studies, given patient data (X) and censoring times (C). A parametric model maps from X to latent distribution parameters ($\theta$), which  parameterise a survival function over time, $S(t)=\mathbb{P}(T>t;\theta)$.
+This library is being used to model survival times (T) in clinical studies, given patient data (X) and censoring times (C). A parametric model maps from X to latent distribution parameters $\theta$, which  parameterise a survival function over time, $S(t;\theta)=\mathbb{P}(T>t;\theta)$.
 
 ## Data
 ![TCYD](docs/tcdy.png)
 
-We have a dataset of 42,456 individuals, of which 139 (0.33%) were diagnosed with the disease at some time (T) during the study period. The study duration for each individual varies and is denoted by the random variable C, which we call the censoring time for each individual. If the individual is not diagnosed by the end of the study, we don't know whether they'll develop the disease later or not at all. We call this *right-censoring*.
+We have a dataset of 42,456 individuals, of which 139 (0.33%) were diagnosed with the disease at some time (T) during the study period. The study duration for each individual varies and is denoted by the random variable C, which we call the censoring time for each individual. If the individual is not diagnosed by the end of the study, we don't know whether they would have developed the disease later or not at all. We call this *right-censoring*.
 
-We can model the discrete variable, $\mathbb{P}(D)=\mathbb{P}(T<C)$, or the continuous variable, $\mathbb{P}(Y < t) = \mathbb{P}(\min(T,C)<t)$.
+By setting $T=\infty$ for these undiagnosed individuals, we can model the discrete variable, $\mathbb{P}(D)=\mathbb{P}(T<C)$, or the continuous variable, $\mathbb{P}(Y < t) = \mathbb{P}(\min(T,C)<t)$.
 
-## Distributions
+## Parametric Distributions
 In survival analysis, we define "survival" as the absence of a critical event, e.g. death or disease diagnosis. At any time $t$, we define the "hazard" $h(t)$ as the chance of the event occurring, conditional on the fact that it hasn't yet occurred.
 
 $$h(t) = \lim_{\Delta t \rightarrow 0} \frac{\mathbb{P}(t < T < t + \Delta t | T > t)}{\Delta t} = \frac{f(t)}{S(t)}$$
@@ -29,25 +29,25 @@ This is the known as the Weibull distribution, where \( $\lambda > 0$ \) is the 
 
 ![weibull](docs/weibull.png)
 
-Since we aren't modelling death, not everyone is expected to see an event in their lifetimes. We model this using an additional parameter $A = 1-S(t)$ as $t \rightarrow \infty$.
+Since we aren't modelling death, not everyone is expected to see an event in their lifetimes. We model this using an additional parameter $\alpha = 1-S(t)$ as $t \rightarrow \infty$.
 
-![scaled_weibull](docs/scaled_weibull.png)
+![scaled_weibull](docs/asymptotic_weibull.png)
 
-## Parameters
-We model parameters $\theta = (A, \lambda, k)$ as a function of features $X$ using linear regression and non-linear output transformations that enforce bounds on the parameters. Specifically,
+## Parameter Model
+We model parameters $\theta = (\alpha, \lambda, k)$ as a compound function of features $g \circ m: X \mapsto g(m(X))$, where $m$ is a multi-layer perceptron and $g$ is a vector of transformation functions that enforce sensible bounds on the parameter predictions. If $m$ has no hidden layers, we get a linear model:
 
-$$A = \sigma(W_AX)$$
+$$\alpha = \sigma(W_\alpha X)$$
 $$\lambda = 5000\sigma(W_\lambda X)$$
 $$k = 5\sigma(W_kX)$$
 
 ## Parametric Survival Model
-Recall that each individual has features $X$, survival time $T$, and censoring time $C$. Putting everything together, our linear parameter model maps $X \mapsto (A,\lambda,k)$, and
+Recall that each individual has features $X$, survival time $T$, and censoring time $C$. Putting everything together, our parameter model maps $X \mapsto (\alpha,\lambda,k)$, and
 
 $$
-\mathbb{P}(Y=t|t,c;A,\lambda,k) = 
+\mathbb{P}(Y=t|t,c;\alpha,\lambda,k) = 
 \begin{cases}
-f(t;A,\lambda,k) & t < c \\
-1-F(c;A,\lambda,k) & t = c
+f(t;\alpha,\lambda,k) & t < c \\
+1-F(c;\alpha,\lambda,k) & t = c
 \end{cases}
 $$
 
@@ -60,14 +60,14 @@ We use a *ScaledWeibull* distribution and a known linear parameter model to gene
 ![synth_param](docs/synth_param.png)
 
 ## Training
-We use *scipy.minimize* to fit the linear parameter model such that the negative log-likelihood across the training data is minimised. Since the dataset is heavily imbalanced, we avoid overfitting by training each class $D = \text{true/false}$ with equal weighting. It may be necessary to further up-weight the diagnosed likelihoods due to differences in magnitude - $f(t) \approx 10^{-3} F(c)$.
+We maximise the likelihood of the model over the training data by defining loss as negative log-likelihood and minimising. Since the dataset is heavily imbalanced, we avoid overfitting by training each class $D = \text{true/false}$ with equal weighting. It may be necessary to further rebalance the diagnosed likelihoods due to differences in magnitude: $f(t) \approx 10^{-3} F(c)$.
 
 ## Evaluation
-There are several ways to evaluate model performance. The most straightforward is to plot the ROC for survival predictions. Since our discrete $D$ variable represents event occurence, i.e. non-survival, we set $D_{true} = D$ and $D_{pred} = 1 - S(c) = F(c;A,\lambda,k)$.
+There are several ways to evaluate model performance. The most straightforward is to plot the ROC for survival predictions. Since our discrete $D$ variable represents event occurence, i.e. non-survival, we set $D_{true} = D$ and $D_{pred} = 1 - S(c) = F(c;\alpha,\lambda,k)$.
 
 ![roc](docs/roc.png)
 
-Alternatively, we can evaluate binary model predictions at fixed time snapshots. At each time $t$, each subject has either had an event, not had an event, or is censored. We mask out the subjects which were censored with no event and calculate the AUC for the binary classification task, then plot the AUCs over several timestamps (Left: synthetic data, Right: dummy data).
+Alternatively, we can evaluate binary model predictions at fixed time snapshots. At each time $t$, each subject has either had an event, not had an event, or is censored. We mask out the subjects which were censored with no event (as we can't say for sure whether they would have had an event at this later time) and calculate the AUC for the binary classification task, then plot the AUCs over several timestamps (Left: synthetic data, Right: dummy data).
 
 ![t_auc](docs/synth_tauc.png)
 ![t_auc_dummy](docs/dummy_tauc.png)

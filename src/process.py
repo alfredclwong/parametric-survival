@@ -7,6 +7,8 @@ import polars as pl
 from sklearn.preprocessing import StandardScaler
 from tqdm.auto import tqdm
 
+from vis import plot_feature_histograms
+
 
 def row_filter(df, cond, desc, verbose=True):
     """Filter rows based on a condition and print the number of rows filtered."""
@@ -68,6 +70,10 @@ def process_df(
 
     # Fill NaN values in X features with 0
     df = df.with_columns([pl.col(col).fill_nan(0) for col in X_cols])
+
+    # Add a column of ones for the intercept term called X_0
+    if "X_0" not in df.columns:
+        df = df.with_columns(pl.Series("X_0", 1.0))
 
     # Calculate Y and D
     df = df.with_columns(
