@@ -63,18 +63,18 @@ if __name__ == "__main__":
     DATA_DIR = ROOT_DIR / "data"
 
     param_transforms = {
-        "alpha": lambda x: t.clip(sigmoid(x), EPS, 1.0),
+        # "alpha": lambda x: t.clip(sigmoid(x), EPS, 1.0),
         # "scale": lambda x: 100 * 365 * t.clip(sigmoid(x), EPS, 1.0),
         "scale": lambda x: 10 * 365 * t.clip(sigmoid(x), EPS, 1.0),
         "concentration": lambda x: 5 * t.clip(sigmoid(x), EPS, 1.0),
     }
     feature_importances = {
-        "alpha": np.array([1, 1, 1, 0, 0, 0, 0, 0, 0, 0]) / 3 * 5,
+        # "alpha": np.array([1, 1, 1, 0, 0, 0, 0, 0, 0, 0]) / 3 * 5,
         "scale": np.array([0, 0, 1, 1, 1, 0, 0, 0, 0, 0]) / 3,
         "concentration": np.array([0, 0, 0, 0, 1, 1, 1, 0, 0, 0]) / 3,
     }
     biases = {
-        "alpha": -5,  # Increasing A increases P(D)
+        # "alpha": -5,  # Increasing A increases P(D)
         "scale": 0.2,  # Decreasing scale increases P(D)
         # "scale": 15,  # Decreasing scale increases P(D)
         "concentration": -1.0,  # Decreasing shape increases P(D)
@@ -85,8 +85,8 @@ if __name__ == "__main__":
         n_samples=1_000_000,
         n_features=n_features,
         noise=0,
-        dist_type=AsymptoticWeibull,
-        # dist_type=t.distributions.Weibull,
+        # dist_type=AsymptoticWeibull,
+        dist_type=t.distributions.Weibull,
         feature_factors=np.array(list(feature_importances.values())).T,
         biases=np.array(list(biases.values())),
         mapping_cfg=ParamMappingConfig(
@@ -105,21 +105,21 @@ if __name__ == "__main__":
     print(params_df)
 
 # %%
-    plot_features = ["T", "C", "D", "Y"]
-    plot_feature_histograms(df, features=plot_features, n_cols=4).show()
-    plot_feature_histograms(params_df, n_cols=3).show()
-    pct_D = df.select(pl.col("D").mean()).item()
-    print(f"{pct_D:.2%}")
+plot_features = ["T", "C", "D", "Y"]
+plot_feature_histograms(df, features=plot_features, n_cols=4).show()
+plot_feature_histograms(params_df, n_cols=3).show()
+pct_D = df.select(pl.col("D").mean()).item()
+print(f"{pct_D:.2%}")
 
 # %%
-    dummy_df = pl.read_parquet(DATA_DIR / "dummy_processed.parquet")
-    plot_feature_histograms(dummy_df, features=plot_features, n_cols=4).show()
-    pct_D = dummy_df.select(pl.col("D").mean()).item()
-    print(f"{pct_D:.2%}")
+dummy_df = pl.read_parquet(DATA_DIR / "dummy_processed.parquet")
+plot_feature_histograms(dummy_df, features=plot_features, n_cols=4).show()
+pct_D = dummy_df.select(pl.col("D").mean()).item()
+print(f"{pct_D:.2%}")
 
 # %%
-    df.write_parquet(DATA_DIR / "synth.parquet")
-    weights_df.write_parquet(DATA_DIR / "synth_weights.parquet")
-    params_df.write_parquet(DATA_DIR / "synth_params.parquet")
+df.write_parquet(DATA_DIR / f"synth_{cfg.dist_type.__name__}.parquet")
+weights_df.write_parquet(DATA_DIR / f"synth_{cfg.dist_type.__name__}_weights.parquet")
+params_df.write_parquet(DATA_DIR / f"synth_{cfg.dist_type.__name__}_params.parquet")
 
 # %%

@@ -44,7 +44,7 @@ class RunConfig:
     synth_data_path: Path
     n_samples: Optional[int | tuple[int, int]]
     mapping_cfg: ParamMappingConfig
-    dist_type: type[AsymptoticWeibull]
+    dist_type: type[t.distributions.Distribution]
     param_transforms: dict[str, Callable]
     device: str
     train_cfg: TrainConfig
@@ -129,12 +129,14 @@ if __name__ == "__main__":
     ROOT_DIR = Path().cwd().parent
     DATA_DIR = ROOT_DIR / "data"
 
-    n_samples = 100_000
-    n_events = n_samples // 300
+    # n_samples = 100_000
+    # n_events = n_samples // 300
+    n_samples = 50_000
+    n_events = 150
     n_features = 10
     # n_features = 40
     param_transforms = {
-        "alpha": lambda x: t.clip(sigmoid(x), EPS, 1.0),
+        # "alpha": lambda x: t.clip(sigmoid(x), EPS, 1.0),
         "scale": lambda x: 10 * 365 * t.clip(sigmoid(x), EPS, 1.0),
         "concentration": lambda x: 5 * t.clip(sigmoid(x), EPS, 1.0),
         # "alpha": lambda x: t.ones_like(x),
@@ -152,9 +154,10 @@ if __name__ == "__main__":
     cfg = RunConfig(
         # synth_data_path=DATA_DIR / "dummy_processed.parquet",
         # n_samples=None,
-        synth_data_path=DATA_DIR / "synth.parquet",
+        synth_data_path=DATA_DIR / "synth_Weibull.parquet",
         n_samples=(n_events, n_samples - n_events),
-        dist_type=AsymptoticWeibull,
+        # dist_type=AsymptoticWeibull,
+        dist_type=t.distributions.Weibull,
         mapping_cfg=ParamMappingConfig(
             d_in=n_features + 1,
             d_hidden=[],
@@ -164,10 +167,11 @@ if __name__ == "__main__":
         param_transforms=param_transforms,
         device=device,
         train_cfg=TrainConfig(
-            n_epochs=2000,
+            n_epochs=5000,
             learning_rate=2e-3,
             weight_decay=1e-6,
             balance=True,
+            patience=100,
             batch_size=None,
             # Two interpretations of balance:
             # 1. Without balance, the loss is mostly determined by the D=0 class, which is much larger.
@@ -176,8 +180,17 @@ if __name__ == "__main__":
     )
     model = run(cfg)
 
-    with pl.Config(tbl_rows=11):
-        print(model.mapping.weights_df)
+    weights_df = model.mapping.weights_df
+    weights_df.columns = [f"{col}_pred" for col in weights_df.columns]
+
+    true_weights_path = cfg.synth_data_path.with_stem(cfg.synth_data_path.stem + "_weights")
+    if true_weights_path.exists():
+        true_weights_df = pl.read_parquet(true_weights_path)
+        true_weights_df.columns = [f"{col}_true" for col in true_weights_df.columns]
+        weights_df[true_weights_df.columns] = true_weights_df
+        weights_df = weights_df[sorted(weights_df.columns)]
+    with pl.Config(tbl_rows=n_features + 1):
+        print(weights_df)
 
 # %%
     # # Save the model weights

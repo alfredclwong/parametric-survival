@@ -50,6 +50,7 @@ def plot_params_by_d(pred_df, param_names):
         rows=n_rows,
         cols=n_cols,
         subplot_titles=[f"D={d}" for d in pred_df["D"].unique()],
+        shared_xaxes="rows",
     )
     for i, param in enumerate(param_names):
         for j, d in enumerate(pred_df["D"].unique()):
@@ -63,6 +64,16 @@ def plot_params_by_d(pred_df, param_names):
                 ),
                 row=i + 1,
                 col=j + 1,
+            )
+            mean = np.mean(param_data)
+            fig.add_vline(
+                x=mean,
+                line_dash="dash",
+                line_color="black",
+                row=i + 1,
+                col=j + 1,
+                annotation_text=f"mean={mean:.2f}",
+                annotation_position="top left",
             )
             fig.update_xaxes(title_text=param, row=i + 1, col=j + 1)
             fig.update_yaxes(title_text="Count", row=i + 1, col=j + 1)
@@ -99,17 +110,18 @@ def plot_params(pred_df, param_names):
     return param_charts
 
 
-def plot_likelihoods(pred_df):
+def plot_likelihoods(pred_df, y_min=-10):
     likelihood_chart = (
         alt.Chart(pred_df)
+        .transform_filter(alt.datum.logL > y_min)
         .mark_circle(size=10)
         .encode(
             x=alt.X("Y", title="Y"),
-            y=alt.Y("logL", title="logL"),
+            y=alt.Y("logL", title="logL").scale(domain=[y_min, 0]),
             color=alt.Color("D:N", title="D"),
         )
         .properties(width=600, height=400)
-        .facet(row=alt.Row("D:N", title="D"))
+        # .facet(row=alt.Row("D:N", title="D"))
         .resolve_scale(y="independent")
         .properties(title="log-likelihood of Y given C")
     )
@@ -138,7 +150,6 @@ def plot_loss_history(history, lim=10):
         for i in range(len(v))
     ]
     history_df = pl.DataFrame(records)
-    print(history_df)
 
     history_df = history_df.with_columns(
         pl.when(pl.col("value") > lim)

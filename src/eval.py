@@ -46,7 +46,7 @@ def show_evals(
     param_names = list(model.mapping.param_transforms.keys())
     plot_params(test_pred_df, param_names).show()
     plot_params_by_d(test_pred_df, param_names).show()
-    plot_params_3d(test_pred_df, param_names).show()
+    # plot_params_3d(test_pred_df, param_names).show()
 
     # # TODO plot average over class (either average the curve or the params)
     # plot_samples_by_d(test_df, model).show()
@@ -82,8 +82,6 @@ def show_evals(
     for metric, value in test_metrics.items():
         print(f"  {metric}: {value:.4f}")
     print(f"  C-index: {test_c_index:.4f}")
-    print("\nTime-dependent AUCs:")
-    print(aucs_df)
 
     plot_roc(
         pred_df["D"].to_numpy(),
@@ -137,7 +135,8 @@ def t_auc(
     """
     n = X.shape[0]
     ts = np.tile(ts[:, np.newaxis], (1, n))
-    params = model.mapping.forward(t.tensor(X, device=model.device, dtype=t.float32))
+    x = t.tensor(X, device=model.device, dtype=t.float32)
+    params = model.mapping(x)
     d_pred = (
         model.dist_type(**params).cdf(t.tensor(ts, device=model.device)).detach().cpu()
     )

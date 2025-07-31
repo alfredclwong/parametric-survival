@@ -15,6 +15,7 @@ class TrainConfig:
     learning_rate: float
     weight_decay: float
     balance: bool
+    patience: Optional[int] = None
     batch_size: Optional[int] = None
 
 
@@ -110,6 +111,7 @@ class ParametricSurvivalModel(t.nn.Module):
 
         history = {"train": [], "val": []}
         best = {"step": -1, "val_loss": INF, "state_dict": self.state_dict()}
+        patience = cfg.patience if cfg.patience is not None else cfg.n_epochs
         for epoch in (pbar := tqdm(range(cfg.n_epochs))):
             self.train()
             batch_size = len(x) if cfg.batch_size is None else cfg.batch_size
@@ -124,14 +126,19 @@ class ParametricSurvivalModel(t.nn.Module):
                 optimizer.zero_grad()
 
             self.eval()
+            patience -= 1
             with t.no_grad():
                 val_loss = self.loss(x_val, y_val, d_val, cfg.balance)
             if val_loss < best["val_loss"]:
+                patience = cfg.patience if cfg.patience is not None else cfg.n_epochs
                 best = {
                     "step": epoch,
                     "val_loss": val_loss.item(),
                     "state_dict": self.state_dict(),
                 }
+            if patience <= 0:
+                print("Early stopping triggered.")
+                break
 
             history["train"].append(loss.item())
             history["val"].append(val_loss.item())
