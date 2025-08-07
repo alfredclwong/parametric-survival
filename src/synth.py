@@ -42,15 +42,15 @@ def generate_synthetic_data(cfg: SynthConfig):
 
     params = mapping(x)
     params_df = pl.DataFrame(
-        {name: pl.Series(param.detach().cpu()) for name, param in params.items()}
+        {name: pl.Series(param.detach().cpu().numpy()) for name, param in params.items()}
     )
 
     c_dist = t.distributions.Weibull(scale=1000, concentration=1.5)
-    c = c_dist.sample((cfg.n_samples,)).detach().cpu().flatten()
+    c = c_dist.sample((cfg.n_samples,)).detach().cpu().numpy().flatten()
     c = np.clip(c, 0, 3000)
 
     t_dist = cfg.dist_type(**params)
-    _t = t_dist.sample((1,)).detach().cpu().flatten()
+    _t = t_dist.sample((1,)).detach().cpu().numpy().flatten()
     _t = np.where(_t < c, _t, np.nan)
 
     df = df.with_columns([pl.Series("T", _t), pl.Series("C", c)])
@@ -63,18 +63,21 @@ if __name__ == "__main__":
     DATA_DIR = ROOT_DIR / "data"
 
     param_transforms = {
-        # "alpha": lambda x: t.clip(sigmoid(x), EPS, 1.0),
+        "alpha": lambda x: t.clip(sigmoid(x), EPS, 1.0),
         # "scale": lambda x: 100 * 365 * t.clip(sigmoid(x), EPS, 1.0),
         "scale": lambda x: 10 * 365 * t.clip(sigmoid(x), EPS, 1.0),
         "concentration": lambda x: 5 * t.clip(sigmoid(x), EPS, 1.0),
     }
     feature_importances = {
         # "alpha": np.array([1, 1, 1, 0, 0, 0, 0, 0, 0, 0]) / 3 * 5,
-        "scale": np.array([0, 0, 1, 1, 1, 0, 0, 0, 0, 0]) / 3,
-        "concentration": np.array([0, 0, 0, 0, 1, 1, 1, 0, 0, 0]) / 3,
+        # "scale": np.array([0, 0, 1, 1, 1, 0, 0, 0, 0, 0]) / 3,
+        # "concentration": np.array([0, 0, 0, 0, 1, 1, 1, 0, 0, 0]) / 3,
+        "alpha": np.array([1, 0, 0, 0, 0, 0, 0, 0, 0, 0]) / 3 * 5,
+        "scale": np.array([0, 1, 0, 0, 0, 0, 0, 0, 0, 0]) / 3,
+        "concentration": np.array([0, 0, 1, 0, 0, 0, 0, 0, 0, 0]) / 3,
     }
     biases = {
-        # "alpha": -5,  # Increasing A increases P(D)
+        "alpha": -5,  # Increasing A increases P(D)
         "scale": 0.2,  # Decreasing scale increases P(D)
         # "scale": 15,  # Decreasing scale increases P(D)
         "concentration": -1.0,  # Decreasing shape increases P(D)
@@ -85,8 +88,8 @@ if __name__ == "__main__":
         n_samples=1_000_000,
         n_features=n_features,
         noise=0,
-        # dist_type=AsymptoticWeibull,
-        dist_type=t.distributions.Weibull,
+        dist_type=AsymptoticWeibull,
+        # dist_type=t.distributions.Weibull,
         feature_factors=np.array(list(feature_importances.values())).T,
         biases=np.array(list(biases.values())),
         mapping_cfg=ParamMappingConfig(
@@ -104,22 +107,19 @@ if __name__ == "__main__":
         print(weights_df)
     print(params_df)
 
-# %%
-plot_features = ["T", "C", "D", "Y"]
-plot_feature_histograms(df, features=plot_features, n_cols=4).show()
-plot_feature_histograms(params_df, n_cols=3).show()
-pct_D = df.select(pl.col("D").mean()).item()
-print(f"{pct_D:.2%}")
+    plot_features = ["T", "C", "D", "Y"]
+    plot_feature_histograms(df, features=plot_features, n_cols=4).show()
+    plot_feature_histograms(params_df, n_cols=3).show()
+    pct_D = df.select(pl.col("D").mean()).item()
+    print(f"{pct_D:.2%}")
 
-# %%
-dummy_df = pl.read_parquet(DATA_DIR / "dummy_processed.parquet")
-plot_feature_histograms(dummy_df, features=plot_features, n_cols=4).show()
-pct_D = dummy_df.select(pl.col("D").mean()).item()
-print(f"{pct_D:.2%}")
+    dummy_df = pl.read_parquet(DATA_DIR / "dummy_processed.parquet")
+    plot_feature_histograms(dummy_df, features=plot_features, n_cols=4).show()
+    pct_D = dummy_df.select(pl.col("D").mean()).item()
+    print(f"{pct_D:.2%}")
 
-# %%
-df.write_parquet(DATA_DIR / f"synth_{cfg.dist_type.__name__}.parquet")
-weights_df.write_parquet(DATA_DIR / f"synth_{cfg.dist_type.__name__}_weights.parquet")
-params_df.write_parquet(DATA_DIR / f"synth_{cfg.dist_type.__name__}_params.parquet")
+    df.write_parquet(DATA_DIR / f"synth_{cfg.dist_type.__name__}_{n_features}f.parquet")
+    weights_df.write_parquet(DATA_DIR / f"synth_{cfg.dist_type.__name__}_{n_features}f_weights.parquet")
+    params_df.write_parquet(DATA_DIR / f"synth_{cfg.dist_type.__name__}_{n_features}f_params.parquet")
 
 # %%

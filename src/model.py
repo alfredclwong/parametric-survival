@@ -17,6 +17,7 @@ class TrainConfig:
     balance: bool
     patience: Optional[int] = None
     batch_size: Optional[int] = None
+    silent: bool = False
 
 
 class ParametricSurvivalModel(t.nn.Module):
@@ -112,7 +113,8 @@ class ParametricSurvivalModel(t.nn.Module):
         history = {"train": [], "val": []}
         best = {"step": -1, "val_loss": INF, "state_dict": self.state_dict()}
         patience = cfg.patience if cfg.patience is not None else cfg.n_epochs
-        for epoch in (pbar := tqdm(range(cfg.n_epochs))):
+
+        for epoch in (pbar := tqdm(range(cfg.n_epochs), disable=cfg.silent)):
             self.train()
             batch_size = len(x) if cfg.batch_size is None else cfg.batch_size
             loss = t.tensor(t.nan, device=self.device)
@@ -137,7 +139,8 @@ class ParametricSurvivalModel(t.nn.Module):
                     "state_dict": self.state_dict(),
                 }
             if patience <= 0:
-                print("Early stopping triggered.")
+                if not cfg.silent:
+                    print("Early stopping triggered.")
                 break
 
             history["train"].append(loss.item())
@@ -146,8 +149,9 @@ class ParametricSurvivalModel(t.nn.Module):
                 f"Train Loss: {loss.item():.4f}, Val Loss: {val_loss.item():.4f}"
             )
 
-        print("Training complete.")
-        print(f"Best validation loss: {best['val_loss']:.4f} at step {best['step']}")
+        if not cfg.silent:
+            print("Training complete.")
+            print(f"Best validation loss: {best['val_loss']:.4f} at step {best['step']}")
         self.load_state_dict(best["state_dict"])
 
         return history
