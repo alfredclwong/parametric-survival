@@ -72,9 +72,12 @@ if __name__ == "__main__":
         # "alpha": np.array([1, 1, 1, 0, 0, 0, 0, 0, 0, 0]) / 3 * 5,
         # "scale": np.array([0, 0, 1, 1, 1, 0, 0, 0, 0, 0]) / 3,
         # "concentration": np.array([0, 0, 0, 0, 1, 1, 1, 0, 0, 0]) / 3,
-        "alpha": np.array([1, 0, 0, 0, 0, 0, 0, 0, 0, 0]) / 3 * 5,
-        "scale": np.array([0, 1, 0, 0, 0, 0, 0, 0, 0, 0]) / 3,
-        "concentration": np.array([0, 0, 1, 0, 0, 0, 0, 0, 0, 0]) / 3,
+        # "alpha": np.array([1, 0, 0, 0, 0, 0, 0, 0, 0, 0]) / 3 * 5,
+        # "scale": np.array([0, 1, 0, 0, 0, 0, 0, 0, 0, 0]) / 3,
+        # "concentration": np.array([0, 0, 1, 0, 0, 0, 0, 0, 0, 0]) / 3,
+        "alpha": np.array([1, 0, 0, 0, 0]) / 3 * 5,
+        "scale": np.array([0, 1, 0, 0, 0]) / 3,
+        "concentration": np.array([0, 0, 1, 0, 0]) / 3,
     }
     biases = {
         "alpha": -5,  # Increasing A increases P(D)
@@ -83,7 +86,7 @@ if __name__ == "__main__":
         "concentration": -1.0,  # Decreasing shape increases P(D)
         # "concentration": -0.8,  # Decreasing shape increases P(D)
     }
-    n_features = 10
+    n_features = 5
     cfg = SynthConfig(
         n_samples=1_000_000,
         n_features=n_features,

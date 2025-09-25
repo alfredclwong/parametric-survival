@@ -14,3 +14,8 @@ if re-sampling, how many negative examples help for training, and what kind?
 check t-AUC, implementation and intuition (precision/recall vs AUC for imbalanced datasets)
 noise? many levels to inject: features, mapping, params, and/or diagnsosis time
 run multiple simulations and add error bars to t-AUC
+
+
+
+I want to know the pairwise correlation between real param weights and predicted param weights, e.g. if real alpha changes by +0.1,
+how do pred alpha and scale change?

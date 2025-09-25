@@ -1,9 +1,11 @@
+# %%
 from itertools import combinations
 from typing import Optional
 
 import altair as alt
-import numpy as np
+import pandas as pd
 import polars as pl
+import numpy as np
 import torch as t
 from sklearn.metrics import (
     accuracy_score,
@@ -13,6 +15,7 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 from tqdm.auto import tqdm
+import plotly.graph_objects as go
 
 from model import ParametricSurvivalModel
 from vis import (
@@ -211,3 +214,73 @@ def concordance_index(y_true, y_pred):
         total_pairs += 1
 
     return concordant_pairs / total_pairs if total_pairs > 0 else np.nan
+
+
+# %%
+def visualise_predictions(c, y_true, y_pred):
+    fig = go.Figure()
+
+    df = pd.DataFrame({"c": c, "y_true": y_true, "y_pred": y_pred, "d_true": y_true < c, "d_pred": y_pred < c})
+
+    marker = dict(
+        opacity=0.7,
+        # Predicted events are crosses, predicted censored are circles
+        symbol=(df["y_pred"] < df["c"]).map({True: "cross", False: "circle"}),
+        # Correct predictions are green, incorrect are red
+        color=(df["d_true"] == df["d_pred"]).map({True: "green", False: "red"}),
+    )
+
+    fig.add_trace(
+        go.Scatter(x=df["y_true"], y=df["y_pred"], mode="markers", marker=marker)
+    )
+
+    # Add y=x line
+    y_max = df[["y_true", "y_pred"]].max().max()
+    fig.add_trace(go.Scatter(x=[0, y_max], y=[0, y_max], mode="lines", line=dict(color="black", dash="dash")))
+
+    fig.update_layout(
+        title="Predicted vs True Survival Times",
+        xaxis_title="True Survival Time",
+        yaxis_title="Predicted Survival Time",
+        showlegend=False,
+    )
+    fig.show()
+
+
+# %%
+if __name__ == "__main__":
+    # Evaluate some fake predictions
+    # What's a prediction?
+    # Each subject has a true survival time Y and a censoring time C
+    # If Y <= C, the event is observed (D=1)
+    # If Y > C, the event is censored (D=0)
+    # We can either evaluate the binary classification of D vs D_pred
+    # or the survival times Y vs Y_pred (only for uncensored subjects)
+    n = 100
+    c = np.random.uniform(500, 1500, size=n)
+    y_true = np.random.exponential(scale=1000, size=n)
+    y_true = np.minimum(y_true, c)
+    d_true = y_true < c
+
+    y_pred_perfect = y_true.copy()
+    y_pred_random = np.random.exponential(scale=1000, size=n)
+    y_pred_biased = y_true + np.random.normal(loc=200, scale=100, size=n)
+    y_pred_noisy = y_true + np.random.normal(loc=0, scale=300, size=n)
+    y_pred_worst = np.where(y_true < c, c, 0)
+    y_pred_constant = np.full(n, np.median(y_true))
+
+    y_preds = {
+        "Perfect": y_pred_perfect,
+        "Random": y_pred_random,
+        "Biased": y_pred_biased,
+        "Noisy": y_pred_noisy,
+        "Worst": y_pred_worst,
+        "Constant": y_pred_constant,
+    }
+    d_preds = {name: y_pred < c for name, y_pred in y_preds.items()}
+
+    for name in y_preds.keys():
+        print(f"\n{name} Predictions:")
+        visualise_predictions(c, y_true, y_preds[name])
+
+# %%
