@@ -133,10 +133,10 @@ if __name__ == "__main__":
     # n_events = n_samples // 300
     n_samples = 50_000
     n_events = 150
-    n_features = 10
+    n_features = 4
     # n_features = 40
     param_transforms = {
-        # "alpha": lambda x: t.clip(sigmoid(x), EPS, 1.0),
+        "alpha": lambda x: t.clip(sigmoid(x**3-6), EPS, 1.0),
         "scale": lambda x: 10 * 365 * t.clip(sigmoid(x), EPS, 1.0),
         "concentration": lambda x: 5 * t.clip(sigmoid(x), EPS, 1.0),
         # "alpha": lambda x: t.ones_like(x),
@@ -154,10 +154,11 @@ if __name__ == "__main__":
     cfg = RunConfig(
         # synth_data_path=DATA_DIR / "dummy_processed.parquet",
         # n_samples=None,
-        synth_data_path=DATA_DIR / "synth_Weibull.parquet",
+        # synth_data_path=DATA_DIR / "synth_Weibull.parquet",
+        synth_data_path=DATA_DIR / f"synth_AsymptoticWeibull_{n_features}f.parquet",
         n_samples=(n_events, n_samples - n_events),
-        # dist_type=AsymptoticWeibull,
-        dist_type=t.distributions.Weibull,
+        dist_type=AsymptoticWeibull,
+        # dist_type=t.distributions.Weibull,
         mapping_cfg=ParamMappingConfig(
             d_in=n_features + 1,
             d_hidden=[],

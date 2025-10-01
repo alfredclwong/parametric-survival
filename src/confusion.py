@@ -20,6 +20,7 @@ from torch.nn.functional import sigmoid
 from typing import Callable
 
 from tqdm.auto import tqdm
+from pathlib import Path
 
 from train import train_test_split
 from model import ParametricSurvivalModel
@@ -191,7 +192,8 @@ def predict_weights(
 # %%
 root_dir = Path().cwd().parent
 data_dir = root_dir / "data"
-W_df = pl.read_parquet(data_dir / "synth_AsymptoticWeibull_5f_weights.parquet")
+weights_file = "synth_AsymptoticWeibull_4f_weights.parquet"
+W_df = pl.read_parquet(data_dir / weights_file)
 W_df = W_df[:-1]
 # W_df[0, 0] = 100.0
 # W_df[1, 0] = 0.0
@@ -200,8 +202,7 @@ W_df
 # %%
 n = 100_000
 param_transforms = {
-    "alpha": lambda x: t.clip(sigmoid(x), EPS, 1.0),
-    # "alpha": lambda x: t.ones_like(x),
+    "alpha": lambda x: t.clip(sigmoid(x**3-6), EPS, 1.0),
     "scale": lambda x: 10 * 365 * t.clip(sigmoid(x), EPS, 1.0),
     "concentration": lambda x: 5 * t.clip(sigmoid(x), EPS, 1.0),
 }
@@ -230,7 +231,7 @@ for i, perturbed_param in enumerate(perturbed_params):
             .otherwise(pl.col(perturbed_param[0]))
             .alias(perturbed_param[0])
         )
-        display(W_df_perturbed)
+        print(W_df_perturbed)
         for _ in tqdm(range(n_repeats), desc="Repeats"):
             error_count = 0
             while error_count < 5:
@@ -244,6 +245,9 @@ for i, perturbed_param in enumerate(perturbed_params):
     all_results.append(results)
 
 # %%
+all_results
+
+# %%
 for i, perturbed_param in enumerate(perturbed_params):
     results = all_results[i]
 
@@ -252,10 +256,10 @@ for i, perturbed_param in enumerate(perturbed_params):
     pred_params = [
         ("alpha_pred", [0]),
         ("alpha_pred", [1]),
-        ("alpha_pred", [2, 3, 4]),
+        ("alpha_pred", [2, 3]),
         ("scale_pred", [0]),
         ("scale_pred", [2]),
-        ("scale_pred", [1, 3, 4]),
+        ("scale_pred", [1, 3]),
         # ("concentration_pred", [0]),
         # ("concentration_pred", [3]),
         # ("concentration_pred", [1, 2, 4]),
@@ -306,7 +310,12 @@ for i in range(len(all_results)):
         # break
     # break
 combined_df = pl.concat(dfs, how="vertical")
-combined_df.write_parquet(data_dir / "perturbation_results.parquet")
+combined_df.write_parquet(data_dir / f"{weights_file[:-8]}_confusion_results.parquet")
+
+# %%
+combined_df = pl.read_parquet(data_dir / f"{weights_file[:-8]}_confusion_results.parquet")
 
 # %%
 combined_df
+
+# %%

@@ -41,7 +41,7 @@ plot_dist(asymptotic_weibull, x).properties(height=300, width=300).show()
 n_samples = 2
 n_features = 3
 param_transforms = {
-    "alpha": lambda x: t.clip(sigmoid(x), EPS, 1.0),
+    "alpha": lambda x: t.clip(sigmoid(x**3-0.2), EPS, 1.0),
     "scale": lambda x: 3650 * t.clip(sigmoid(x), EPS, 1.0),
     "concentration": lambda x: 5 * t.clip(sigmoid(x), EPS, 1.0),
 }
@@ -156,8 +156,8 @@ history = model.fit(
     y_val,
     d_val,
     cfg=TrainConfig(
-        n_epochs=100,
-        learning_rate=1e-3,
+        n_epochs=200,
+        learning_rate=1e-2,
         weight_decay=0.0,
         balance=True,
     ),

@@ -6,7 +6,7 @@ This library is being used to model survival times (T) in clinical studies, give
 
 We have a dataset of 42,456 individuals, of which 139 (0.33%) were diagnosed with the disease at some time (T) during the study period. The study duration for each individual varies and is denoted by the random variable C, which we call the censoring time for each individual. If the individual is not diagnosed by the end of the study, we don't know whether they would have developed the disease later or not at all. We call this *right-censoring*.
 
-By setting $T=\infty$ for these undiagnosed individuals, we can model the discrete variable, $\mathbb{P}(D)=\mathbb{P}(T<C)$, or the continuous variable, $\mathbb{P}(Y < t) = \mathbb{P}(\min(T,C)<t)$.
+By setting $T=\infty$ for these undiagnosed individuals, we can model the discrete variable, $D=T<C$, or the continuous variable, $Y=\min(T,C)$.
 
 ## Parametric Distributions
 In survival analysis, we define "survival" as the absence of a critical event, e.g. death or disease diagnosis. At any time $t$, we define the "hazard" $h(t)$ as the chance of the event occurring, conditional on the fact that it hasn't yet occurred.

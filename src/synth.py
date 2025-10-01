@@ -63,7 +63,8 @@ if __name__ == "__main__":
     DATA_DIR = ROOT_DIR / "data"
 
     param_transforms = {
-        "alpha": lambda x: t.clip(sigmoid(x), EPS, 1.0),
+        "alpha": lambda x: t.clip(sigmoid(x**3-6), EPS, 1.0),
+        # "alpha": lambda x: t.clip(sigmoid(x), EPS, 1.0),
         # "scale": lambda x: 100 * 365 * t.clip(sigmoid(x), EPS, 1.0),
         "scale": lambda x: 10 * 365 * t.clip(sigmoid(x), EPS, 1.0),
         "concentration": lambda x: 5 * t.clip(sigmoid(x), EPS, 1.0),
@@ -75,18 +76,18 @@ if __name__ == "__main__":
         # "alpha": np.array([1, 0, 0, 0, 0, 0, 0, 0, 0, 0]) / 3 * 5,
         # "scale": np.array([0, 1, 0, 0, 0, 0, 0, 0, 0, 0]) / 3,
         # "concentration": np.array([0, 0, 1, 0, 0, 0, 0, 0, 0, 0]) / 3,
-        "alpha": np.array([1, 0, 0, 0, 0]) / 3 * 5,
-        "scale": np.array([0, 1, 0, 0, 0]) / 3,
-        "concentration": np.array([0, 0, 1, 0, 0]) / 3,
+        "alpha": np.array([1, 0, 0, 0]),
+        "scale": np.array([0, 4, 0, 0]),
+        "concentration": np.array([0, 0, 3, 0]),
     }
     biases = {
-        "alpha": -5,  # Increasing A increases P(D)
-        "scale": 0.2,  # Decreasing scale increases P(D)
+        "alpha": 0.3,
+        "scale": 0.5,  # Decreasing scale increases P(D)
         # "scale": 15,  # Decreasing scale increases P(D)
-        "concentration": -1.0,  # Decreasing shape increases P(D)
+        "concentration": 1.0,  # Decreasing shape increases P(D)
         # "concentration": -0.8,  # Decreasing shape increases P(D)
     }
-    n_features = 5
+    n_features = 4
     cfg = SynthConfig(
         n_samples=1_000_000,
         n_features=n_features,

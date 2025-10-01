@@ -64,6 +64,10 @@ class ParametricSurvivalModel(t.nn.Module):
         balance: bool,
     ) -> t.Tensor:
         ll = self.log_likelihood(x, y, d)
+        if balance and not (0 < d.sum().item() < len(d)):
+            balance = False
+            print("Warning: Cannot balance loss with only one class present.")
+            print(f"Class distribution: {d.sum().mean():.2%} positive")
         if balance:
             loss_pos = ll[d == 1].nanmean()
             loss_neg = ll[d == 0].nanmean()

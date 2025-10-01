@@ -2,11 +2,9 @@
 from itertools import combinations
 from typing import Optional
 
-import altair as alt
 import pandas as pd
-import polars as pl
 import numpy as np
-import torch as t
+import torch
 from sklearn.metrics import (
     accuracy_score,
     f1_score,
@@ -16,6 +14,7 @@ from sklearn.metrics import (
 )
 from tqdm.auto import tqdm
 import plotly.graph_objects as go
+import matplotlib.pyplot as plt
 
 from model import ParametricSurvivalModel
 from vis import (
@@ -31,14 +30,14 @@ from vis import (
 
 def show_evals(
     model: ParametricSurvivalModel,
-    x_train: t.Tensor,
-    y_train: t.Tensor,
-    c_train: t.Tensor,
-    d_train: t.Tensor,
-    x_test: t.Tensor,
-    y_test: t.Tensor,
-    c_test: t.Tensor,
-    d_test: t.Tensor,
+    x_train: torch.Tensor,
+    y_train: torch.Tensor,
+    c_train: torch.Tensor,
+    d_train: torch.Tensor,
+    x_test: torch.Tensor,
+    y_test: torch.Tensor,
+    c_test: torch.Tensor,
+    d_test: torch.Tensor,
 ):
     # Make predictions with the fitted model
     pred_df = model.predict(x_train, y_train, c_train, d_train)
@@ -71,11 +70,16 @@ def show_evals(
         test_pred_df["Y"].to_numpy(), test_pred_df["Y_pred"].to_numpy()
     )
     # Calculate time-dependent AUC for test data
-    ts = np.arange(200, 2500, 50)
-    t_aucs = t_auc(
+    ts = np.arange(200, 2500, 10)
+    aucs_df = t_auc(
         model, ts, x_test.cpu().numpy(), y_test.cpu().numpy(), c_test.cpu().numpy()
     )
-    aucs_df = pl.DataFrame({"Time": ts, "AUC": t_aucs.flatten()})
+    aucs_df.plot(x="Time", y=["aucs", "aucs_without_c", "frac_censored", "frac_true_diagnosed (x100)", "frac_pred_diagnosed"])
+    plt.xlabel("Time")
+    plt.ylabel("AUC")
+    plt.title("AUC vs Time")
+    plt.show()
+
 
     print("Training Metrics:")
     for metric, value in train_metrics.items():
@@ -97,7 +101,7 @@ def show_evals(
         title="ROC Curve (Test)",
     ).show()
 
-    plot_t_auc(aucs_df).show()
+    # plot_t_auc(aucs_df).show()
 
     plot_confusion_matrix(
         pred_df["D"].to_numpy(),
@@ -111,7 +115,44 @@ def show_evals(
     ).show()
 
 
-def t_auc(
+@torch.no_grad()
+def t_auc(model, ts, x, y, c):
+    mask = ts < c[:, None]
+    d_true = (y[:, None] < ts) & (y < c)[:, None]
+
+    model.eval()
+    x_tensor = torch.tensor(x, device=model.device, dtype=torch.float32)
+    p = model.mapping(x_tensor)
+    ts_tensor = torch.tensor(
+        np.minimum(ts[:, None], c[None, :]),
+        device=model.device,
+        dtype=torch.float32,
+    )
+    d_pred = model.dist_type(**p).cdf(ts_tensor).T.detach().cpu().numpy()
+
+    aucs = np.array([roc_auc_score(d_true[:, i], d_pred[:, i]) for i in range(len(ts))])
+    aucs_without_c = np.array(
+        [
+            roc_auc_score(d_true[:, i][mask[:, i]], d_pred[:, i][mask[:, i]])
+            if np.sum(mask[:, i]) > 0
+            else np.nan
+            for i in range(len(ts))
+        ]
+    )
+    frac_censored = np.mean(~mask & (d_true == 0), axis=0)
+    frac_true_diagnosed = np.mean(d_true, axis=0)
+    frac_pred_diagnosed = np.mean(d_pred > 0.5, axis=0)
+    return pd.DataFrame({
+        "Time": ts,
+        "aucs": aucs,
+        "aucs_without_c": aucs_without_c,
+        "frac_censored": frac_censored,
+        "frac_true_diagnosed (x100)": frac_true_diagnosed * 100,
+        "frac_pred_diagnosed": frac_pred_diagnosed,
+    })
+
+
+def t_auc_old(
     model: ParametricSurvivalModel,
     ts: np.ndarray,
     X: np.ndarray,
@@ -120,11 +161,11 @@ def t_auc(
 ) -> np.ndarray:
     """Calculate the time-dependent AUC for survival data.
 
-    At each time point t, each subject has either had an event, not yet had an event, or is censored.
-    We don't try to predict the censoring times, so we only consider the uncensored subjects.
-    A ParametricSurvivalModel cdf gives the probability of an event occurring before time t.
+    At each time point t, each subject is either resolved (diagnosed/censored) or unresolved (not yet d/c).
+    A ParametricSurvivalModel cdf F(t) gives the probability of an event occurring before time t.
     The AUC is calculated as the area under the ROC curve for the predicted probabilities of the
     event occurring before time t, compared to the true event indicator (1 if event occurred, 0 if not).
+    If the censoring time c < t, then we use the cdf value at c.
 
     Args:
         model (ParametricSurvivalModel): The survival model to use for predictions.
@@ -137,28 +178,30 @@ def t_auc(
         np.ndarray: Array of AUC values for each time point in `ts`.
     """
     n = X.shape[0]
-    ts = np.tile(ts[:, np.newaxis], (1, n))
-    x = t.tensor(X, device=model.device, dtype=t.float32)
+
+    x = torch.tensor(X, device=model.device, dtype=torch.float32)
     params = model.mapping(x)
-    d_pred = (
-        model.dist_type(**params).cdf(t.tensor(ts, device=model.device)).detach().cpu()
-    )
-    d_true = (ts > T).astype(int)
+
     if C is None:
-        mask = np.ones_like(ts, dtype=bool)
-    else:
-        # Mask out censored subjects. If an event occurs before the censoring time, that subject is not censored.
-        mask = (ts < C) | (T < C)
+        C = np.full(n, np.inf)
+
+    ts_tensor = torch.tensor(ts, device=model.device, dtype=torch.float32)
+    d_pred = (
+        model.dist_type(**params).cdf(ts_tensor).detach().cpu().numpy()
+    )
+    mask = ts < C
+    d_pred = np.where(mask[None, :], d_pred, np.nan)
+    
+
+    d_true = T[:, None] < ts
+
     aucs = np.array(
         [
-            roc_auc_score(d_true[i][mask[i]], d_pred[i][mask[i]])
-            if mask[i].sum() > 0
-            else np.nan
+            roc_auc_score(d_true[:, i], d_pred[:, i])
             for i in range(len(ts))
         ]
     )
     return aucs
-
 
 # Predictions:
 #  - Y_pred: median survival time (uncensored)
@@ -225,7 +268,7 @@ def visualise_predictions(c, y_true, y_pred):
     marker = dict(
         opacity=0.7,
         # Predicted events are crosses, predicted censored are circles
-        symbol=(df["y_pred"] < df["c"]).map({True: "cross", False: "circle"}),
+        symbol=(df["y_pred"] < df["c"]).map({True: "x", False: "circle"}),
         # Correct predictions are green, incorrect are red
         color=(df["d_true"] == df["d_pred"]).map({True: "green", False: "red"}),
     )
@@ -284,3 +327,14 @@ if __name__ == "__main__":
         visualise_predictions(c, y_true, y_preds[name])
 
 # %%
+# X, C -> 0 < T < inf, Y = min(T, C), D = T < C
+#
+# Model choices
+# 1. Predict T | X
+# 2. Predict D | X, C
+# 3. Predict Y | X, C (aWeibull)
+# 
+# 1. P(D) binary
+# 2. P(D,C) at time u
+#   - truth: uc (T<u, D=1), rc (C<u, D=0), lc (u<T<C, D=0)
+#   - pred: uc (F(u)), 
