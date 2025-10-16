@@ -62,12 +62,12 @@ def show_evals(
         test_pred_df["D"].to_numpy(), test_pred_df["D_pred"].to_numpy() > 0.5
     )
     # Calculate C-index for training data
-    train_c_index = concordance_index(
-        pred_df["Y"].to_numpy(), pred_df["Y_pred"].to_numpy()
+    train_c_index = calculate_c_index(
+        pred_df["Y"].to_numpy(), pred_df["Y_pred"].to_numpy(), pred_df["D"].to_numpy()
     )
     # Calculate C-index for test data
-    test_c_index = concordance_index(
-        test_pred_df["Y"].to_numpy(), test_pred_df["Y_pred"].to_numpy()
+    test_c_index = calculate_c_index(
+        test_pred_df["Y"].to_numpy(), test_pred_df["Y_pred"].to_numpy(), test_pred_df["D"].to_numpy()
     )
     # Calculate time-dependent AUC for test data
     ts = np.arange(200, 2500, 10)
@@ -228,35 +228,45 @@ def binary_classification_metrics(y_true, y_pred):
     }
 
 
-def concordance_index(y_true, y_pred):
+def calculate_c_index(y_true, y_pred, d_true, n_samples=None) :
+    """Calculate concordance index for survival predictions.
+    Args:
+        y_true (np.ndarray): True survival times.
+        y_pred (np.ndarray): Predicted survival times.
+        d (np.ndarray): Event indicators (1 if event occurred, 0 if censored).
+    Returns:
+        float: Concordance index.
     """
-    Calculate the concordance index (C-index) for survival data.
-    C-index is the proportion of all pairs of subjects whose predicted survival times
-    are correctly ordered.
-    """
-    # Ensure y_true and y_pred are 1D arrays
-    y_true = np.asarray(y_true).flatten()
-    y_pred = np.asarray(y_pred).flatten()
+    n = len(y_true)
+    permissible = 0
+    concordant = 0
 
-    # Count concordant pairs
-    concordant_pairs = 0
-    total_pairs = 0
+    i_d = np.where(d_true)[0]
+    if len(i_d) == 0:
+        return np.nan
 
-    n_pairs = len(y_true) * (len(y_true) - 1) // 2
-    if n_pairs > 1e6:
-        # Only take the first 1 million pairs for performance reasons
-        n_pairs = 1e6
-    pairs = combinations(range(len(y_true)), 2)
-    for i, j in tqdm(pairs, desc="Calculating C-index", total=n_pairs):
-        if total_pairs >= n_pairs:
-            break
+    if n_samples is None:
+        n_samples = i_d.shape[0] * (n - 1)
+
+    while permissible < n_samples:
+        i = np.random.choice(i_d)
+        j = np.random.choice(n)
+        if i == j:
+            continue
+        # You can only compare if at least one is uncensored and they have different survival times
+        # Additionally, if one is censored, it must be censored after the other event
+        # If it was censored before, we can't be sure of the ordering
+        if y_true[i] == y_true[j]:
+            continue
+        if d_true[j] == 0 and y_true[j] < y_true[i]:
+            continue
+        permissible += 1
         if (y_true[i] < y_true[j] and y_pred[i] < y_pred[j]) or (
-            y_true[i] > y_true[j] and y_pred[i] > y_pred[j]
+            y_true[j] < y_true[i] and y_pred[j] < y_pred[i]
         ):
-            concordant_pairs += 1
-        total_pairs += 1
+            concordant += 1
 
-    return concordant_pairs / total_pairs if total_pairs > 0 else np.nan
+    return concordant / permissible
 
 
 # %%

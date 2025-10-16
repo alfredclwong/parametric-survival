@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import polars as pl
+import pandas as pd
 import torch as t
 from tqdm.auto import tqdm
 
@@ -31,6 +32,7 @@ class ParametricSurvivalModel(t.nn.Module):
         self.dist_type = dist_type
         self.mapping = ParamMapping(mapping_cfg).to(device)
         self.device = device
+        self.to(device)
 
     def get_dist(self, x: t.Tensor) -> t.distributions.Distribution:
         params = self.mapping(x)
@@ -67,7 +69,7 @@ class ParametricSurvivalModel(t.nn.Module):
         if balance and not (0 < d.sum().item() < len(d)):
             balance = False
             print("Warning: Cannot balance loss with only one class present.")
-            print(f"Class distribution: {d.sum().mean():.2%} positive")
+            print(f"Class distribution: {d.sum().float().mean():.2%} positive")
         if balance:
             loss_pos = ll[d == 1].nanmean()
             loss_neg = ll[d == 0].nanmean()
@@ -160,29 +162,32 @@ class ParametricSurvivalModel(t.nn.Module):
 
         return history
 
+    @t.no_grad()
     def predict(
-        self, x: t.Tensor, y: t.Tensor, c: t.Tensor, d: t.Tensor
-    ) -> pl.DataFrame:
+        self, x: t.Tensor, y: t.Tensor, c: t.Tensor, d: t.Tensor, as_pl=True
+    ) -> pl.DataFrame | pd.DataFrame:
+        self.eval()
         x = x.to(self.device, dtype=t.float32)
         y = y.to(self.device, dtype=t.float32)
         c = c.to(self.device, dtype=t.float32)
         d = d.to(self.device, dtype=t.bool)
 
-        with t.no_grad():
-            params = self.mapping(x)
-            df = pl.DataFrame(
-                {
-                    "Y": y.cpu(),
-                    "C": c.cpu(),
-                    "D": d.cpu(),
-                    **{k: v.cpu() for k, v in params.items()},
-                    "logL": self.log_likelihood(x, y, d).cpu(),
-                    "D_pred": self.dist_type(**params).cdf(c).cpu(),
-                    "T_pred": self.median_survival_time(x).cpu(),
-                }
-            ).with_columns(
-                Y_pred=pl.min_horizontal(["T_pred", "C"]),
-            )
+        params = self.mapping(x)
+        df = pl.DataFrame(
+            {
+                "Y": y.cpu(),
+                "C": c.cpu(),
+                "D": d.cpu(),
+                **{k: v.cpu() for k, v in params.items()},
+                "logL": self.log_likelihood(x, y, d).cpu(),
+                "D_pred": self.dist_type(**params).cdf(c).cpu(),
+                "T_pred": self.median_survival_time(x).cpu(),
+            }
+        ).with_columns(
+            Y_pred=pl.min_horizontal(["T_pred", "C"]),
+        )
+        if not as_pl:
+            return df.to_pandas()
         return df
 
     def median_survival_time(self, x: t.Tensor) -> t.Tensor:
