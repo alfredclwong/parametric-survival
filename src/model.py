@@ -71,6 +71,9 @@ class ParametricSurvivalModel(t.nn.Module):
             print("Warning: Cannot balance loss with only one class present.")
             print(f"Class distribution: {d.sum().float().mean():.2%} positive")
         if balance:
+            # Two things to consider:
+            # 1. Pos is much less frequent (300-1000x) than neg
+            # 2. Likelihood of neg is much larger (1000x) than pos because it's cdf vs pdf
             loss_pos = ll[d == 1].nanmean()
             loss_neg = ll[d == 0].nanmean()
             return -(loss_pos + loss_neg) / 2
@@ -105,8 +108,7 @@ class ParametricSurvivalModel(t.nn.Module):
         y_val = y_val.to(self.device, dtype=t.float32)
         d_val = d_val.to(self.device, dtype=t.bool)
 
-        self.mapping.init_weights()
-        optimizer = t.optim.Adam(
+        optimizer = t.optim.AdamW(
             self.parameters(), lr=cfg.learning_rate, weight_decay=cfg.weight_decay
         )
         # optimizer = t.optim.SGD(
