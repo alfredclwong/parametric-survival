@@ -22,9 +22,6 @@ ukb_neuro_df = pd.read_csv(ukb_neuro_path, index_col="ID")
 fields_df = pd.read_csv(fields_path, sep="\t", index_col="field_id")
 
 # %%
-ukb_neuro_df["epilepsy"].sum()
-
-# %%
 def get_field_desc(vol_col):
     field_id = int(vol_col.split("_")[0][1:])
     try:
@@ -101,16 +98,52 @@ t_df = ukb_neuro_df[
     ]
 ].dropna()
 t_df["ageDiffDays"] = (t_df["ageImaging"] - t_df["ageInitial"]) * 365
-t_df["timeto_diff_days"] = t_df[f"{disease.replace('Plus', '')}_timeto_diagn_orEnd"] - t_df[f"{disease}_timeto_imaging_pastfuture"]
+t_df["timeto_diff_days"] = (
+    t_df[f"{disease.replace('Plus', '')}_timeto_diagn_orEnd"]
+    - t_df[f"{disease}_timeto_imaging_pastfuture"]
+)
 t_df["error_days"] = t_df["ageDiffDays"] - t_df["timeto_diff_days"]
 t_df.loc[t_df["error_days"].abs() > 5]
 
 # %%
-all_diseases = ["dem", "delirium", "epilepsy", "migraine", "ms", "AD", "vascD", "FTD", "PDcheck"]
+# OK so we only trust the timeto_diagn_XXX columns
+# [col for col in ukb_neuro_df.columns if "timeto_diagn" in col and ("epilepsy" in col or "dem" in col)]
+t_df = ukb_neuro_df[
+    [
+        "dem_timeto_diagn_orEnd",
+        "epilepsy_timeto_diagn_orEnd",
+        "ageImaging",
+        "ageInitial",
+        "dem_timeto_diagn_pastfuture",
+        "epilepsyPlus_timeto_diagn_pastfuture",
+    ]
+]
+t_df
+
+
+# %%
+all_diseases = [
+    "dem",
+    "delirium",
+    "epilepsy",
+    "migraine",
+    "ms",
+    "AD",
+    "vascD",
+    "FTD",
+    "PDcheck",
+]
 c_df = pd.DataFrame(index=ukb_neuro_df.index)
 for disease in all_diseases:
     c_df[f"C_{disease}"] = np.where(
-        ukb_neuro_df["dementia" if disease == "dem" else "multiplesclerosis" if disease == "ms" else disease] == 0,
+        ukb_neuro_df[
+            "dementia"
+            if disease == "dem"
+            else "multiplesclerosis"
+            if disease == "ms"
+            else disease
+        ]
+        == 0,
         ukb_neuro_df[f"{disease}_timeto_diagn_orEnd"],
         np.nan,
     )
@@ -120,8 +153,12 @@ c_df
 
 # %%
 tmp_df = ukb_neuro_df[["epilepsy"]].copy()
-tmp_df["epilepsy_timeto_diagn_orEnd"] = ukb_neuro_df["epilepsy_timeto_diagn_orEnd"].copy()
-tmp_df["timeto_imaging"] = (ukb_neuro_df["ageImaging"] - ukb_neuro_df["ageInitial"]) * 365
+tmp_df["epilepsy_timeto_diagn_orEnd"] = ukb_neuro_df[
+    "epilepsy_timeto_diagn_orEnd"
+].copy()
+tmp_df["timeto_imaging"] = (
+    ukb_neuro_df["ageImaging"] - ukb_neuro_df["ageInitial"]
+) * 365
 tmp_df["Y"] = tmp_df["epilepsy_timeto_diagn_orEnd"] - tmp_df["timeto_imaging"]
 tmp_df = tmp_df.join(c_df, how="left")
 tmp_df["check"] = (tmp_df["Y"] < tmp_df["C"]) == tmp_df["epilepsy"]
@@ -129,10 +166,34 @@ tmp_df = tmp_df.loc[tmp_df[["Y", "C"]].notna().any(axis=1)]
 tmp_df.loc[tmp_df["check"] == False]
 
 # %%
-ukb_neuro_df.loc[1024377, ["epilepsy", "epilepsy_timeto_diagn_orEnd", "dementia", "dem_timeto_diagn_orEnd", "ageImaging", "ageInitial"]]
+ukb_neuro_df.loc[
+    1024377,
+    [
+        "epilepsy",
+        "epilepsy_timeto_diagn_orEnd",
+        "dementia",
+        "dem_timeto_diagn_orEnd",
+        "ageImaging",
+        "ageInitial",
+    ],
+]
 
 # %%
-ukb_neuro_df.loc[1010931, ["epilepsy", "epilepsy_timeto_diagn_orEnd", "dementia", "dem_timeto_diagn_orEnd", "ageImaging", "ageInitial"]]
+ukb_neuro_df.loc[
+    1010931,
+    [
+        "epilepsy",
+        "epilepsy_timeto_diagn_orEnd",
+        "epilepsy_timeto_imaging_pastfuture",
+        "epilepsy_timeto_diagn_pastfuture",
+        "epilepsyPlus_timeto_diagn_pastfuture",
+        "dementia",
+        "dem_timeto_diagn_orEnd",
+        "dem_timeto_diagn_pastfuture",
+        "ageImaging",
+        "ageInitial",
+    ],
+]
 
 # %%
 diseases = {"dementia": "dem", "epilepsyPlus": "epilepsy"}
@@ -140,14 +201,29 @@ neuro_df = {}
 neuro_df["ageImaging"] = ukb_neuro_df["ageImaging"].copy()
 neuro_df["C"] = c_df["C"].copy()
 for disease, short_name in diseases.items():
-    neuro_df[f"D_{short_name}"] = ukb_neuro_df[disease.replace("Plus", "")].copy()
+    # neuro_df[f"D_{short_name}"] = ukb_neuro_df[disease.replace("Plus", "")].copy()
     neuro_df[f"Y_{short_name}"] = (
         ukb_neuro_df[f"{short_name}_timeto_diagn_orEnd"]
         - (ukb_neuro_df["ageImaging"] - ukb_neuro_df["ageInitial"]) * 365
     )
-    neuro_df[f"T_{short_name}"] = np.where(neuro_df[f"D_{short_name}"] == 1, neuro_df[f"Y_{short_name}"], np.nan)
+    neuro_df[f"D_{short_name}"] = np.where(
+        ukb_neuro_df[f"{short_name}_timeto_diagn_pastfuture"] > 0,
+        1,
+        0,
+    )
+    # neuro_df[f"T_{short_name}"] = np.where(neuro_df[f"D_{short_name}"] == 1, neuro_df[f"Y_{short_name}"], np.nan)
+    neuro_df[f"T_{short_name}"] = ukb_neuro_df[
+        f"{short_name}_timeto_diagn_pastfuture"
+    ].copy()
 neuro_df = pd.DataFrame(neuro_df)
 neuro_df
+
+# %%
+# check D_dem = Y_dem < C
+invalid_dem = neuro_df.loc[neuro_df["D_dem"] != (neuro_df["Y_dem"] < neuro_df["C"])]
+valid_dem = neuro_df.loc[neuro_df["D_dem"] == (neuro_df["Y_dem"] < neuro_df["C"])]
+print(f"Number of invalid D_dem vs Y_dem < C: {invalid_dem.shape[0]}")
+invalid_dem
 
 # %%
 for disease in ["dem", "epilepsy"]:
@@ -158,8 +234,10 @@ for disease in ["dem", "epilepsy"]:
     d_postdiag_sum = neuro_df.loc[postdiag, f"D_{disease}"].sum()
     d_imaged_sum = neuro_df.loc[imaged, f"D_{disease}"].sum()
     d_postdiag_imaged_sum = neuro_df.loc[postdiag & imaged, f"D_{disease}"].sum()
-    print((postdiag==(imaged & postdiag)).all())  # all postdiag are imaged
-    print(f"{disease}: n={n}, D sum={d_sum}, D postdiag sum={d_postdiag_sum}, D imaged sum={d_imaged_sum}, D postdiag & imaged sum={d_postdiag_imaged_sum}")
+    print((postdiag == (imaged & postdiag)).all())  # all postdiag are imaged
+    print(
+        f"{disease}: n={n}, D sum={d_sum}, D postdiag sum={d_postdiag_sum}, D imaged sum={d_imaged_sum}, D postdiag & imaged sum={d_postdiag_imaged_sum}"
+    )
 
 # %%
 disease = "epilepsy"
@@ -167,12 +245,14 @@ df = neuro_df.join(deconf_df, how="left")
 
 imaging_cols = deconf_df.columns.tolist()
 surv_cols = list("TDY")
-df = df[[
-    *[f"{x}_{disease}" for x in surv_cols],
-    "C",
-    "ageImaging",
-    *imaging_cols,
-]]
+df = df[
+    [
+        *[f"{x}_{disease}" for x in surv_cols],
+        "C",
+        "ageImaging",
+        *imaging_cols,
+    ]
+]
 df = df.rename(columns={f"{x}_{disease}": x for x in surv_cols})
 
 print(f"Before filtering: {df.shape[0]} ({df['D'].sum()} events)")
@@ -185,17 +265,33 @@ print(f"After filtering to imaged events: {df.shape[0]} ({df['D'].sum()} events)
 # Filter to post-diagnosis events only
 any_postdiag = df["Y"] > 0
 df = df.loc[any_postdiag]
-print(f"After filtering to post-diagnosis events: {df.shape[0]} ({df['D'].sum()} events)")
+print(
+    f"After filtering to post-diagnosis events: {df.shape[0]} ({df['D'].sum()} events)"
+)
 
 # Filter for complete deconf data
 df = df.loc[df[deconf_df.columns].notna().all(axis=1)]
-print(f"After filtering to complete deconf data: {df.shape[0]} ({df['D'].sum()} events)")
+print(
+    f"After filtering to complete deconf data: {df.shape[0]} ({df['D'].sum()} events)"
+)
 
 df
 
 # %%
-tmp_df = ukb_neuro_df.loc[1236945, ["epilepsy", "epilepsy_timeto_diagn_orEnd", "ageImaging", "ageInitial", "epilepsy_timeto_imaging_pastfuture"]]
-tmp_df["Y"] = tmp_df["epilepsy_timeto_diagn_orEnd"] - (tmp_df["ageImaging"] - tmp_df["ageInitial"]) * 365
+tmp_df = ukb_neuro_df.loc[
+    1236945,
+    [
+        "epilepsy",
+        "epilepsy_timeto_diagn_orEnd",
+        "ageImaging",
+        "ageInitial",
+        "epilepsy_timeto_imaging_pastfuture",
+    ],
+]
+tmp_df["Y"] = (
+    tmp_df["epilepsy_timeto_diagn_orEnd"]
+    - (tmp_df["ageImaging"] - tmp_df["ageInitial"]) * 365
+)
 tmp_df
 
 # %%
@@ -212,7 +308,16 @@ valid_y_c
 df.loc[2995308, ["D", "Y", "C", "ageImaging"]]
 
 # %%
-ukb_neuro_df.loc[2995308, ["epilepsy", "epilepsy_timeto_diagn_orEnd", "ageImaging", "ageInitial", "epilepsy_timeto_imaging_pastfuture"]]
+ukb_neuro_df.loc[
+    2995308,
+    [
+        "epilepsy",
+        "epilepsy_timeto_diagn_orEnd",
+        "ageImaging",
+        "ageInitial",
+        "epilepsy_timeto_imaging_pastfuture",
+    ],
+]
 
 # %%
 # Pre-processing
@@ -254,14 +359,18 @@ train_df
 from mlp import MLP, train_classifier
 import torch
 
-classifier = MLP(input_dim=len(x_cols), hidden_dims=[len(x_cols), len(x_cols)], output_dim=2)
+classifier = MLP(
+    input_dim=len(x_cols), hidden_dims=[len(x_cols), len(x_cols)], output_dim=2
+)
 x_train = torch.tensor(train_df[x_cols].values, dtype=torch.float32)
 y_train = torch.tensor(train_df["D"].values, dtype=torch.long)
 x_val = torch.tensor(val_df[x_cols].values, dtype=torch.float32)
 y_val = torch.tensor(val_df["D"].values, dtype=torch.long)
 optimizer = torch.optim.Adam(classifier.parameters(), lr=2e-3, weight_decay=1e-4)
 n_epochs = 1000
-history = train_classifier(classifier, x_train, y_train, x_val, y_val, optimizer, n_epochs, patience=200)
+history = train_classifier(
+    classifier, x_train, y_train, x_val, y_val, optimizer, n_epochs, patience=200
+)
 px.line(history, y=["train", "val"], title="Training History").show()
 
 # %%
@@ -271,6 +380,7 @@ with torch.no_grad():
     y_test_pred = classifier(x_test).softmax(dim=1)[:, 1]
 
 from sklearn.metrics import roc_auc_score
+
 roc_auc = roc_auc_score(y_test.numpy(), y_test_pred.numpy())
 print(f"Test ROC AUC: {roc_auc:.4f}")
 
@@ -290,7 +400,10 @@ y_test_pred_hist = px.histogram(
 y_test_pred_hist.show()
 
 # %%
-pred_df.loc[pred_df["D"] == 1, "D_pred"].mean(), pred_df.loc[pred_df["D"] == 0, "D_pred"].mean()
+(
+    pred_df.loc[pred_df["D"] == 1, "D_pred"].mean(),
+    pred_df.loc[pred_df["D"] == 0, "D_pred"].mean(),
+)
 
 # %%
 pred_df.sort_values(["D", "Y"], ascending=[False, True]).head(20)
@@ -304,8 +417,8 @@ test_df.loc[2995308, ["T", "D", "Y", "C"]]
 pred_df["log_D_pred"] = np.log(pred_df["D_pred"].clip(1e-8))
 y_vs_dpred = (
     alt.Chart(pred_df.reset_index())
-    .mark_circle(opacity=0.5
-    ).encode(
+    .mark_circle(opacity=0.5)
+    .encode(
         x="Y",
         y="log_D_pred",
         color="D:N",
@@ -399,6 +512,7 @@ pred_df.loc[pred_df["D"] == 0].head(20)
 
 # %%
 from sklearn.metrics import brier_score_loss
+
 
 @torch.no_grad()
 def calculate_brier_score(

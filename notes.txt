@@ -19,3 +19,24 @@ run multiple simulations and add error bars to t-AUC
 
 I want to know the pairwise correlation between real param weights and predicted param weights, e.g. if real alpha changes by +0.1,
 how do pred alpha and scale change?
+
+
+
+
+
+Log
+1. How to deal with imbalance
+    - Introduce alpha term to Weibull
+    - Inverse weighting
+    - Data augmentation?
+    - Contrastive learning?
+2. How to deal with censoring
+    - CDF likelihood
+3. Biological ground truth
+    - Some diseases are genetic (high alpha for individuals)
+    - Some diseases are rare for all (low alpha for all)
+4. How to deal with small datasets
+    - Only 26/30918 epilepsy (0.08%), 25/31097 dementia (0.08%)
+    - Bayesian learning?
+    - Data augmentation
+    - Data imputation on imaging
